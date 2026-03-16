@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autonomous Enterprise Suite</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ── Shared Header ─────────────────────────────────────────────────────── -->
+  <header class="top-bar">
+    <div class="logo">
+      <span class="logo-icon">◈</span>
+      <span class="logo-text">Enterprise Suite</span>
+    </div>
+
+    <nav class="phase-tabs" id="phaseTabs">
+      <button class="phase-tab active" data-phase="1" onclick="switchPhase(1)">
+        ◆ Phase 1 · Latency Lens
+      </button>
+      <button class="phase-tab" data-phase="2" onclick="switchPhase(2)">
+        ◈ Phase 2 · Situation Intelligence Brief
+      </button>
+      <button class="phase-tab" data-phase="3" onclick="switchPhase(3)">⬡ Phase 3 · Circuit Stitcher</button>
+    </nav>
+
+    <div class="header-right">
+      <div class="api-key-field">
+        <span class="api-key-label">API Key</span>
+        <input type="password" id="apiKeyInput" class="api-key-input" placeholder="AIza…" autocomplete="off" onchange="saveApiKey(this.value)" />
+        <button class="api-key-eye" onclick="toggleApiKeyVisibility()" title="Show/hide">👁</button>
+      </div>
+      <button class="logs-toggle" id="logsToggle" onclick="toggleQuakeConsole()" title="Toggle debug console">◉ Logs</button>
+      <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+      <div class="status-dot" id="statusDot"></div>
+      <span class="status-label" id="statusLabel">Standby</span>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       PHASE 1 — LATENCY LENS
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <div id="phase-1" class="phase-view active">
+
+    <div class="ll-main">
+
+      <!-- LEFT: Control Panel -->
+      <aside class="panel ll-panel ll-control">
+        <div class="panel-header">Control Panel</div>
+        <div class="ll-panel-body">
+
+          <div class="ll-section-label">Session</div>
+          <button class="ll-btn ll-btn-green" id="ll-session-btn" onclick="llHandleSessionBtn()">
+            &#9654; Start Session
+          </button>
+          <button class="ll-btn ll-btn-secondary hidden" id="ll-screen-btn" onclick="llHandleScreenBtn()">
+            &#x1F5A5; Share Screen
+          </button>
+
+          <hr class="ll-divider" />
+
+          <div class="ll-section-label">Status</div>
+          <div class="ll-badge-row">
+            <div class="ll-badge ll-badge-inactive" id="ll-mic-badge">
+              <div class="ll-badge-dot"></div>Microphone
+            </div>
+            <div class="ll-badge ll-badge-inactive" id="ll-screen-badge">
+              <div class="ll-badge-dot"></div>Screen
+            </div>
+          </div>
+
+          <hr class="ll-divider" />
+
+          <div class="ll-info-box">
+            <strong>How to use:</strong><br />
+            1. Click <em>Start Session</em> to open a live audio channel.<br />
+            2. Speak your circuit ID and latency readings.<br />
+            3. Optionally share your screen for visual route analysis.<br />
+            4. The AI will narrate its diagnostic swarm in real-time.
+          </div>
+
+          <div class="ll-info-box ll-speaking-box hidden" id="ll-speaking-indicator">
+            <strong>&#9679; AI Speaking&#8230;</strong><br />
+            <span>Latency Lens Live is analyzing your circuit.</span>
+          </div>
+
+        </div>
+      </aside>
+
+      <!-- RIGHT: Transcript Panel -->
+      <section class="panel ll-panel ll-transcript cs3-right-panel" id="ll-transcript-panel">
+        <div class="panel-header">
+          Diagnostic Transcript
+          <span class="ll-clear-link" onclick="llClearTranscript()">Clear</span>
+        </div>
+
+        <!-- JSM-style ticket card — compact at top, same as Phase 3 -->
+        <div class="ll-ticket-card cs3-ticket-inflow" id="ll-ticket-card">
+          <div class="ll-ticket-topbar" onclick="llToggleTicket()">
+            <span class="ll-ticket-key">SUP-1</span>
+            <span class="ll-ticket-sep">·</span>
+            <span class="ll-ticket-priority" title="Priority: Highest">🔴</span>
+            <span class="ll-ticket-title">SFO → PHX — Route Mismatch / RTT 15.2 ms vs 11.1 ms expected</span>
+            <span class="ll-ticket-status">Open</span>
+            <span class="ll-ticket-toggle">&#9660;</span>
+          </div>
+          <div class="ll-ticket-raised">
+            <div class="ll-ticket-avatar">MN</div>
+            <span><strong>Maggie Nanyonga</strong> raised this request</span>
+            <span class="ll-ticket-via">via Jira · created yesterday</span>
+          </div>
+          <div class="ll-ticket-body" id="ll-ticket-body">
+            <div class="ll-ticket-main">
+              <div>
+                <div class="ll-ticket-section-label">Description</div>
+                <div class="ll-ticket-desc">
+                  <strong>Origin:</strong> Situation Intelligence Brief<br/>
+                  <strong>Issue:</strong> Route Mismatch on the SFO → PHX corridor. Traffic is incorrectly
+                  routed through high-elevation mountainous terrain.<br/>
+                  <strong>Action:</strong> Execute collaborative reroute via Southern Corridor (Motorway I-10)
+                  using Circuit Stitcher.
+                </div>
+              </div>
+              <div>
+                <div class="ll-ticket-section-label">Circuit Details</div>
+                <div class="ll-circuit-list">
+                  <div class="ll-circuit-row"><span class="ll-circuit-label">Circuit ID</span><span class="ll-circuit-value">C2891-W-SFO-PHX</span></div>
+                  <div class="ll-circuit-row"><span class="ll-circuit-label">Fiber Route</span><span class="ll-circuit-value">1,200 km (documented)</span></div>
+                  <div class="ll-circuit-row"><span class="ll-circuit-label">A-End (SFO)</span><span class="ll-circuit-value">37.6213°N, 122.3790°W</span></div>
+                  <div class="ll-circuit-row"><span class="ll-circuit-label">Z-End (PHX)</span><span class="ll-circuit-value">33.4373°N, 112.0078°W</span></div>
+                  <div class="ll-circuit-row"><span class="ll-circuit-label">Expected RTT</span><span class="ll-circuit-value">11.1 ms</span></div>
+                  <div class="ll-circuit-row"><span class="ll-circuit-label">Measured RTT</span><span class="ll-circuit-value ll-value-bad">15.2 ms &nbsp;▲ +36.9%</span></div>
+                </div>
+              </div>
+              <!-- TODO (Google Earth API): replace with iframe once credentials are provisioned -->
+              <button class="ll-btn-ge" onclick="openGoogleEarth(35.53, -117.19, 1500000)">
+                🌍 View Route in Google Earth
+              </button>
+            </div>
+            <div class="ll-ticket-sla-col">
+              <div class="ll-ticket-section-label">SLAs</div>
+              <div class="ll-sla-card">
+                <div class="ll-sla-name">Time to first response</div>
+                <div class="ll-sla-time">within 2h</div>
+                <div class="ll-sla-deadline">Mar 16 · 11:00 AM</div>
+              </div>
+              <div class="ll-sla-card ll-sla-warning">
+                <div class="ll-sla-name">Time to done</div>
+                <div class="ll-sla-time">within 4h</div>
+                <div class="ll-sla-deadline">Mar 16 · 01:00 PM</div>
+              </div>
+            </div>
+            <div class="ll-ticket-sidebar">
+              <div class="ll-ts-section">
+                <div class="ll-ticket-section-label">Details</div>
+                <div class="ll-ts-field"><div class="ll-ts-label">Assignee</div><div class="ll-ts-value">Latency Lens Agent</div></div>
+                <div class="ll-ts-field"><div class="ll-ts-label">Reporter</div><div class="ll-ts-value">Maggie Nanyonga</div></div>
+                <div class="ll-ts-field"><div class="ll-ts-label">Priority</div><div class="ll-ts-value ll-ts-highest">⬆ Highest</div></div>
+                <div class="ll-ts-field"><div class="ll-ts-label">Urgency</div><div class="ll-ts-value ll-ts-urgency">High</div></div>
+                <div class="ll-ts-field"><div class="ll-ts-label">Impact</div><div class="ll-ts-value" style="font-size:11px;">Extensive / Widespread</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Route image — fills middle, same role as the map in Phase 3 -->
+        <div class="cs3-map-fill" id="ll-route-panel">
+          <div id="ll-route-map">
+            <!--
+              SIMULATION: Google Earth API (hardcoded screenshot)
+              wrong_path.png is a pre-rendered stand-in for a live Google Earth Web Embed.
+              The real API requires Maps Platform billing + Earth API access (currently waitlisted).
+
+              Production replacement:
+              <iframe
+                src="https://earth.google.com/web/@37.6,-115.0,0a,1800000d/embed"
+                allow="xr-spatial-tracking"
+                style="position:absolute;inset:0;width:100%;height:100%;border:0">
+              </iframe>
+            -->
+            <div class="cs3-map-blocker"></div>
+            <img src="wrong_path.png" alt="Current wrong route — Sierra Nevada violation (Google Earth API simulation)" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:2" />
+          </div>
+        </div>
+
+        <div id="ll-transcript" style="display:none"></div>
+      </section>
+    </div>
+
+    <!-- Audit Log Panel -->
+    <div class="ll-audit-panel" id="ll-audit-panel">
+      <div class="ll-audit-header">
+        <div class="ll-audit-header-left">
+          <div class="ll-audit-dot"></div>
+          Audit Log — Executive Scorecard
+        </div>
+        <span class="ll-audit-dismiss" onclick="document.getElementById('ll-audit-panel').classList.remove('visible')">&#x2715; Dismiss</span>
+      </div>
+      <div class="ll-audit-body" id="ll-audit-body"></div>
+    </div>
+
+  </div><!-- end #phase-1 -->
+
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       PHASE 2 — CLARITY STUDIO
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <div id="phase-2" class="phase-view">
+
+    <!-- Handoff banner (shown when LL pushes telemetry) -->
+    <div class="handoff-banner" id="handoffBanner" style="display:none">
+      <span class="handoff-banner-icon">📥</span>
+      <span class="handoff-banner-text">Latency Lens telemetry received</span>
+      <span class="handoff-banner-meta" id="handoffMeta"></span>
+      <button class="handoff-banner-btn" onclick="csApplyHandoff()">Apply &amp; Generate</button>
+      <button class="handoff-banner-dismiss" onclick="csDismissHandoff()">✕</button>
+    </div>
+
+    <main class="cs-layout">
+
+      <!-- LEFT: Controls -->
+      <aside class="panel panel-controls">
+        <div class="panel-header">Mission Parameters</div>
+
+        <div class="field-group">
+          <label class="field-label">Target Audience</label>
+          <div class="toggle-group" id="audienceToggle">
+            <button class="toggle-btn active" data-value="CTO">CTO</button>
+            <button class="toggle-btn" data-value="CFO">CFO</button>
+            <button class="toggle-btn" data-value="CEO">CEO</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Grounding Source</label>
+          <select id="groundingSelect" class="grounding-select" onchange="csSetGrounding(this.value)">
+            <option value="NONE">— None —</option>
+            <option value="RAG" selected>📄 RAG · SLA Document</option>
+            <option value="GOOGLE_SEARCH">🔍 Google Search</option>
+            <option value="SKILLS">⚙️ Skills · Code Exec</option>
+            <option value="EXTRA_CONTEXT">📎 Extra Context</option>
+          </select>
+          <div id="groundingRagInfo" class="grounding-doc-preview">
+            <div class="grounding-doc-label">📄 Aegius Benchmarking SLAs</div>
+            <div class="grounding-doc-meta">Vertex AI RAG simulation · ION-2030 · Inference Economics</div>
+          </div>
+          <div id="groundingSearchInfo" class="grounding-doc-preview grounding-doc-search" style="display:none">
+            <div class="grounding-doc-label">🔍 Google Search grounding</div>
+            <div class="grounding-doc-meta">Real-time web retrieval via Gemini built-in tool</div>
+          </div>
+          <div id="groundingSkillsInfo" class="grounding-doc-preview grounding-doc-skills" style="display:none">
+            <div class="grounding-doc-label">⚙️ Code execution enabled</div>
+            <div class="grounding-doc-meta">Gemini may run Python to analyze telemetry</div>
+          </div>
+          <textarea id="groundingExtraCtx" class="code-input" rows="3"
+            placeholder="Paste extra context (runbooks, topology notes, etc.)…"
+            style="display:none;margin-top:6px;font-size:13px;resize:vertical"></textarea>
+        </div>
+
+        <button class="label-sample-btn" style="margin-bottom:8px;width:100%;text-align:left" onclick="csTogglePayload()" id="csPayloadToggle">&#x25B8; Show telemetry payload</button>
+
+        <div class="field-group field-group-grow" id="telemetryGroup" style="display:none">
+          <label class="field-label">
+            Telemetry Payload (JSON)
+            <button class="label-sample-btn" onclick="csLoadSample()">&#x21BA; Load Sample</button>
+          </label>
+          <textarea
+            id="telemetryInput"
+            class="code-input code-input-grow"
+            spellcheck="false"
+          >{
+  "severity": "CRITICAL",
+  "circuit_id": "C2891-W-SFO-PHX",
+  "fiber_route_km": 1200,
+  "expected_latency_ms": 11.1,
+  "measured_latency_ms": 15.2,
+  "delta_ms": 4.1,
+  "delta_pct": 36.9,
+  "diagnosis_category": "ROUTE_MISMATCH",
+  "recommended_action": "Execute collaborative reroute via Southern Corridor (Motorway I-10) using Circuit Stitcher.",
+  "origin": "SFO (San Francisco)",
+  "origin_lat": 37.6213,
+  "origin_lon": -122.3790,
+  "destination": "PHX (Phoenix)",
+  "destination_lat": 33.4373,
+  "destination_lon": -112.0078,
+  "affected_services": [
+    "cdn-edge",
+    "video-streaming",
+    "api-gateway"
+  ],
+  "timestamp": "2026-03-15T14:07:09Z"
+}</textarea>
+        </div>
+
+        <div class="ll-info-box ll-speaking-box hidden" id="cs-narrating-indicator">
+          <strong>🔊 Narrating…</strong><br />
+          <span>Situation Intelligence Brief is presenting.</span>
+        </div>
+        <div class="ll-info-box ll-speaking-box hidden" id="cs-listening-indicator" style="border-color:#22c55e;background:rgba(34,197,94,0.07)">
+          <strong style="color:#22c55e">● Generating…</strong><br />
+          <span>Processing telemetry data.</span>
+        </div>
+        <button class="btn-generate" id="generateBtn" onclick="startBriefing()">
+          <span class="btn-icon">▶</span> Generate Briefing
+        </button>
+        <button class="btn-clear" id="clearBtn" onclick="clearOutput()">
+          ✕ Clear
+        </button>
+        <button class="btn-push-cs3" id="pushToCS3Btn" onclick="pushToCS3()" style="display:none">
+          ➤ Push to Situation Intelligence Brief
+        </button>
+      </aside>
+
+      <!-- RIGHT: Storyboard Output -->
+      <section class="panel panel-output">
+        <div class="panel-header">
+          Executive Storyboard
+          <span class="frame-counter" id="frameCounter"></span>
+          <div class="slide-nav">
+            <button class="slide-nav-btn" onclick="csPrevSlide()" title="Previous slide">&#8592;</button>
+            <button class="slide-nav-btn" onclick="csNextSlide()" title="Next slide">&#8594;</button>
+          </div>
+        </div>
+
+        <div id="outputContainer" class="output-container">
+          <div class="empty-state" id="emptyState">
+            <div class="empty-icon">◈</div>
+            <p>Awaiting results from Latency Lens…</p>
+            <p class="empty-sub">Powered by Gemini 2.5 Flash · Interleaved Multimodal Generation</p>
+          </div>
+        </div>
+
+        <div class="audio-bar" id="audioBar" style="display:none">
+          <div class="audio-icon">🔊</div>
+          <div class="audio-waveform" id="audioWaveform">
+            <span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <span class="audio-label" id="audioLabel">Narration Active</span>
+          <button class="audio-ctrl" id="audioPauseBtn" onclick="csPauseResume()">⏸ Pause</button>
+          <button class="audio-ctrl" onclick="csStopNarration()">⏹ Stop</button>
+          <button class="audio-toggle" id="audioToggle" onclick="toggleAudio()">Mute</button>
+        </div>
+      </section>
+
+    </main>
+  </div><!-- end #phase-2 -->
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       PHASE 3 — SITUATION INTELLIGENCE BRIEF
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <div id="phase-3" class="phase-view">
+
+    <div class="ll-main">
+
+      <!-- LEFT: Control Panel -->
+      <aside class="panel ll-panel ll-control">
+        <div class="panel-header">Control Panel</div>
+        <div class="ll-panel-body">
+
+          <!-- Handoff notification — shown when Clarity Studio pushes a briefing -->
+          <div class="cs3-handoff-notice" id="cs3HandoffBanner" style="display:none">
+            <div class="cs3-handoff-notice-row">
+              <span>📥 Briefing received</span>
+              <button class="cs3-handoff-notice-dismiss" onclick="cs3DismissHandoff()">✕</button>
+            </div>
+            <div class="cs3-handoff-notice-meta" id="cs3HandoffMeta"></div>
+          </div>
+
+          <div class="ll-section-label">Session</div>
+          <button class="ll-btn ll-btn-green" id="cs3-session-btn" onclick="cs3HandleSessionBtn()">
+            &#9654; Start Session
+          </button>
+          <button class="ll-btn ll-btn-secondary hidden" id="cs3-screen-btn" onclick="cs3HandleScreenBtn()">
+            &#x1F5A5; Share Screen
+          </button>
+
+          <hr class="ll-divider" />
+
+          <div class="ll-section-label">Status</div>
+          <div class="ll-badge-row">
+            <div class="ll-badge ll-badge-inactive" id="cs3-mic-badge">
+              <div class="ll-badge-dot"></div>Microphone
+            </div>
+            <div class="ll-badge ll-badge-inactive" id="cs3-screen-badge">
+              <div class="ll-badge-dot"></div>Screen<span id="cs3-scan-timer" class="cs3-scan-timer"></span>
+            </div>
+          </div>
+
+          <hr class="ll-divider" />
+
+          <div class="ll-info-box">
+            <strong>How to use:</strong><br />
+            1. Click <em>Start Session</em> to open a live channel.<br />
+            2. Share your screen (Google Earth must be visible).<br />
+            3. The agent validates route drawings in real time.<br />
+            4. Say <em>"stop session"</em> when done.
+          </div>
+
+          <div class="ll-info-box ll-speaking-box hidden" id="cs3-listening-indicator" style="border-color:#22c55e;background:rgba(34,197,94,0.07)">
+            <strong style="color:#22c55e">● Listening…</strong><br />
+            <span>Agent is monitoring your actions.</span>
+          </div>
+
+          <div class="ll-info-box ll-speaking-box hidden" id="cs3-speaking-indicator">
+            <strong>&#9679; AI Executing&#8230;</strong><br />
+            <span>Agent is validating the route.</span>
+          </div>
+
+        </div>
+      </aside>
+
+      <!-- RIGHT: Route Intelligence Map -->
+      <section class="panel ll-panel ll-transcript cs3-right-panel" id="cs3-transcript-panel">
+        <div class="panel-header">
+          Route Intelligence Map
+          <div class="cs3-header-right">
+            <span id="cs3-route-status" class="cs3-route-status-badge hidden"></span>
+            <span class="ll-clear-link" onclick="cs3ClearTranscript()">Clear log</span>
+          </div>
+        </div>
+
+        <!-- Ticket card — in-flow above map, shown expanded when handoff arrives -->
+        <div class="ll-ticket-card cs3-ticket-inflow" id="cs3-ticket-card" style="display:none">
+          <div class="ll-ticket-topbar" onclick="cs3ToggleTicket()">
+            <span class="ll-ticket-key">CS-1</span>
+            <span class="ll-ticket-sep">·</span>
+            <span class="ll-ticket-priority" id="cs3-ticket-priority">🔴</span>
+            <span class="ll-ticket-title" id="cs3-ticket-title">Circuit Reroute</span>
+            <span class="ll-ticket-status">Executing</span>
+            <span class="ll-ticket-toggle">&#9660;</span>
+          </div>
+          <div class="ll-ticket-raised">
+            <div class="ll-ticket-avatar">CS</div>
+            <span><strong>Situation Intelligence Brief</strong> approved this action</span>
+            <span class="ll-ticket-via">via executive briefing</span>
+          </div>
+          <div class="ll-ticket-body" id="cs3-ticket-body"></div>
+        </div>
+
+        <!-- Map — fills remaining space -->
+        <div id="cs3-route-panel" class="cs3-map-fill">
+          <div id="cs3-route-map">
+            <!-- Live agent-view: shows captured screen frames while screen share is active -->
+            <img id="cs3-agent-view" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1" alt="Agent view" />
+          </div>
+        </div>
+
+        <div id="cs3-transcript" style="display:none"></div>
+      </section>
+
+    </div>
+  </div><!-- end #phase-3 -->
+
+  <!-- ── Quake Console (toggled by Logs button) ─────────────────────── -->
+  <div id="quake-console" class="quake-console" style="display:none">
+    <div class="quake-header">
+      <span class="quake-title">◉ Debug Console</span>
+      <span class="quake-count" id="quake-count">0 entries</span>
+      <button class="quake-clear" onclick="quakeClear()">Clear</button>
+      <button class="quake-close" onclick="toggleQuakeConsole()">✕ Close</button>
+    </div>
+    <div class="quake-log" id="quake-log"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
