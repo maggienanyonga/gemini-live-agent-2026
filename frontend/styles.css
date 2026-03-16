@@ -1192,6 +1192,36 @@ a.phase-pill:hover {
   letter-spacing: 0.02em;
 }
 
+@keyframes cs3DashFlow {
+  to { stroke-dashoffset: -4; }
+}
+
+/* ─── Timelapse animation (video player placeholder) ────────────────────────── */
+.cs-timelapse-anim {
+  display: flex;
+  gap: 5px;
+  align-items: flex-end;
+  height: 32px;
+}
+.cs-timelapse-anim span {
+  display: block;
+  width: 4px;
+  border-radius: 2px;
+  background: #334155;
+  animation: csTimelapsePulse 1.4s ease-in-out infinite;
+}
+.cs-timelapse-anim span:nth-child(1) { height: 12px; animation-delay: 0s; }
+.cs-timelapse-anim span:nth-child(2) { height: 22px; animation-delay: 0.15s; }
+.cs-timelapse-anim span:nth-child(3) { height: 32px; animation-delay: 0.3s; }
+.cs-timelapse-anim span:nth-child(4) { height: 22px; animation-delay: 0.45s; }
+.cs-timelapse-anim span:nth-child(5) { height: 12px; animation-delay: 0.6s; }
+@keyframes csTimelapsePulse {
+  0%, 100% { background: #334155; }
+  50%       { background: #3b82f6; }
+}
+
+
+
 /* LL Info boxes */
 .ll-info-box {
   background: var(--surface-2);

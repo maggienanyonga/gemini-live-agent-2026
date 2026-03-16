@@ -37,7 +37,7 @@ import threading
 from datetime import datetime, timezone
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -153,6 +153,15 @@ def get_ll_config() -> types.LiveConnectConfig:
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Zephyr")
+                )
+            ),
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(
+                    disabled=False,
+                    start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
+                    end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,
+                    silence_duration_ms=600,
+                    prefix_padding_ms=20,
                 )
             ),
             context_window_compression=types.ContextWindowCompressionConfig(
@@ -475,21 +484,19 @@ async def generate_image(request: ImageGenRequest):
     Try models in order: gemini-2.5-flash-preview-04-17 → imagen-3.0-generate-002.
     """
     api_key = request.api_key or os.environ.get("GEMINI_API_KEY", "")
-    client = genai.Client(api_key=api_key)
     errors = []
 
-    # 1. Gemini-family image models (generate_content + response_modalities)
+    # 1. Gemini image-generation models via v1 — no response_modalities needed,
+    #    model returns IMAGE parts natively; v1beta 404s on these model names.
+    client_v1 = genai.Client(http_options={"api_version": "v1"}, api_key=api_key)
     for model_name in (
-        "nano-banana-pro-preview",          # The actual Nano Banana
-        "gemini-2.5-flash-image",           # Gemini 2.5 Flash Image
-        "gemini-3.1-flash-image-preview",   # Gemini 3.1 Flash Image
-        "gemini-3-pro-image-preview",       # Gemini 3 Pro Image
+        "gemini-2.0-flash-preview-image-generation",
+        "gemini-2.0-flash-exp",
     ):
         try:
-            resp = client.models.generate_content(
+            resp = client_v1.models.generate_content(
                 model=model_name,
                 contents=request.prompt,
-                config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
             )
             for part in resp.candidates[0].content.parts:
                 if part.inline_data is not None:
@@ -502,10 +509,11 @@ async def generate_image(request: ImageGenRequest):
             errors.append(f"{model_name}: {e}")
             logger.warning(f"{model_name} failed: {e}")
 
-    # 2. Imagen 4 via Gemini API (dedicated image model)
-    for img_model in ("imagen-4.0-generate-001", "imagen-4.0-fast-generate-001"):
+    # 2. Imagen via v1beta (predict endpoint, not generateContent)
+    client_beta = genai.Client(http_options={"api_version": "v1beta"}, api_key=api_key)
+    for img_model in ("imagen-3.0-generate-002", "imagen-3.0-generate-001"):
         try:
-            resp = client.models.generate_images(
+            resp = client_beta.models.generate_images(
                 model=img_model,
                 prompt=request.prompt,
                 config=types.GenerateImagesConfig(
@@ -526,7 +534,7 @@ async def generate_image(request: ImageGenRequest):
 
 
 @app.post("/generate-briefing")
-async def generate_briefing(request: BriefingRequest, x_api_key: str | None = None):
+async def generate_briefing(request: BriefingRequest, x_api_key: str | None = Header(None)):
     return StreamingResponse(
         stream_gemini(
             request.telemetry,
@@ -624,7 +632,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             continue
                         if msg_type == "audio":
                             await session.send_realtime_input(
-                                audio={"mime_type": "audio/pcm", "data": data}
+                                audio={"mime_type": "audio/pcm;rate=16000", "data": data}
                             )
                         elif msg_type == "video":
                             await session.send_realtime_input(
@@ -698,7 +706,7 @@ async def cs_websocket_endpoint(websocket: WebSocket):
     api_key = websocket.query_params.get("api_key") or None
     await websocket.accept()
     try:
-        async with _live_client_for_key(api_key).aio.live.connect(
+        async with _cs_live_client_for_key(api_key).aio.live.connect(
             model=CS_MODEL, config=get_cs_config()
         ) as session:
 

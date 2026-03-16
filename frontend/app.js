@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// Clarity Studio — Frontend
+// Situation Intelligence Brief — Frontend
 // ══════════════════════════════════════════════════════════════════════════════
 //
 // API SIMULATIONS & KEY REQUIREMENTS
@@ -108,7 +108,7 @@ function toggleTheme() {
       }
     } catch (e) {}
 
-    // Route to tab from URL hash (e.g. #clarity-studio)
+    // Route to tab from URL hash (e.g. #situation-intelligence-brief)
     const phase = _phaseFromHash();
     if (phase) switchPhase(phase);
   });
@@ -228,14 +228,14 @@ function switchPhase(phase) {
     setTimeout(() => cs3RenderRouteMap(cs3PendingHandoff || {}), 80);
   }
   // Update URL hash without adding a history entry
-  const slug = phase === 1 ? 'latency-lens' : phase === 2 ? 'clarity-studio' : 'circuit-stitcher';
+  const slug = phase === 1 ? 'latency-lens' : phase === 2 ? 'situation-intelligence-brief' : 'circuit-stitcher';
   history.replaceState(null, '', '#' + slug);
 }
 
 function _phaseFromHash() {
   const h = location.hash.replace('#', '');
   if (h === 'latency-lens')    return 1;
-  if (h === 'clarity-studio')  return 2;
+  if (h === 'situation-intelligence-brief')  return 2;
   if (h === 'circuit-stitcher') return 3;
   // also accept bare numbers: #1 #2 #3
   const n = parseInt(h);
@@ -253,14 +253,22 @@ let geWindowRef = null;
 
 function openGoogleEarth(lat, lon, dist) {
   const url = `https://earth.google.com/web/@${lat},${lon},0a,${dist}d,35y,0h,0t,0r`;
+
+  // All phases: open GE as a right-half window.
+  // Chrome has no JS API for tab split-screen (it's a browser UI feature only).
+  // We position the GE window on the right half; user can tile the app manually
+  // with Win+← / macOS green-button hold → Tile.
   const halfW = Math.floor(screen.availWidth / 2);
   geWindowRef = window.open(
     url, 'google-earth',
-    `popup,left=${halfW},top=0,width=${halfW},height=${screen.availHeight}`
+    `left=${halfW},top=0,width=${halfW},height=${screen.availHeight}`
   );
-  try { window.moveTo(0, 0); window.resizeTo(halfW, screen.availHeight); } catch (e) {}
+  if (activePhase === 3) {
+    cs3AppendTranscript('[Google Earth opened on right — tile app to left with Win+← or macOS Tile, then Share Screen]', 'system');
+    cs3UpdateRouteStatus('invalid');
+    return;
+  }
 
-  // In Phase 1, also add a GE nav card to the transcript
   if (activePhase === 1) {
     const container = document.getElementById('ll-transcript');
     if (container) {
@@ -277,6 +285,7 @@ function openGoogleEarth(lat, lon, dist) {
     }
   }
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PHASE 1 — LATENCY LENS
@@ -300,7 +309,7 @@ const llActiveSources = [];
 
 let llTextAccum = '';
 let llLastAuditLog = null;
-let llPendingHandoff = null;   // set by pushToClarity, consumed by csApplyHandoff
+let llPendingHandoff = null;   // set by pushToSIB, consumed by csApplyHandoff
 let llAutoPushTriggered = false;   // prevents double-firing within one session
 let _csPendingAutoGenerate = false; // deferred CS generation while LL session is live
 
@@ -436,11 +445,11 @@ function llCheckAutoPush(text) {
   const t = text.toLowerCase();
   // Skip the question form ("would you like me to push", "shall I push")
   if (/would you like|shall i|should i/.test(t)) return;
-  // Match affirmative push action directed at Clarity Studio
-  const isPushAction = /i(?:'m| am| will|'ll)(?: now)? push|pushing (?:this|the|now)|pushed (?:this|the)|sending (?:this|the) to clarity/.test(t);
-  if (isPushAction && t.includes('clarity')) {
+  // Match affirmative push action directed at Situation Intelligence Brief
+  const isPushAction = /i(?:'m| am| will|'ll)(?: now)? push|pushing (?:this|the|now)|pushed (?:this|the)|sending (?:this|the) to (?:clarity|situation|brief)/.test(t);
+  if (isPushAction && (t.includes('brief') || t.includes('situation') || t.includes('clarity'))) {
     llAutoPushTriggered = true;
-    setTimeout(pushToClarity, 600);
+    setTimeout(pushToSIB, 600);
   }
 }
 
@@ -482,7 +491,7 @@ function llRenderAuditLog(log) {
       <div class="ll-audit-field-value" style="font-size:12px;font-family:inherit;font-weight:400;color:var(--text);">${llEscapeHtml(log.recommended_action || '—')}</div>
     </div>
     <div class="ll-handoff-row">
-      <button id="ll-handoff-btn" class="ll-btn ll-btn-secondary" onclick="pushToClarity()">
+      <button id="ll-handoff-btn" class="ll-btn ll-btn-secondary" onclick="pushToSIB()">
         &#x27A4; Push to Situation Intelligence Brief
       </button>
       <span id="ll-handoff-status" class="ll-handoff-status"></span>
@@ -510,7 +519,7 @@ function normalizeLLPayload(raw) {
   };
 }
 
-function pushToClarity() {
+function pushToSIB() {
   if (!llLastAuditLog) return;
   if (llAutoPushTriggered && llPendingHandoff) return; // already pushed this session
 
@@ -712,7 +721,7 @@ function llStopSession() {
     csApplyHandoff(true);
   } else if (llLastAuditLog && !_wasPushTriggered) {
     // Reliable fallback: session ended with an audit log but nothing pushed yet
-    setTimeout(pushToClarity, 800);
+    setTimeout(pushToSIB, 800);
   }
 
   if (llWorkletNode) { try { llWorkletNode.disconnect(); } catch (e) {} llWorkletNode = null; }
@@ -790,7 +799,7 @@ function llStopScreenShare() {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  PHASE 2 — CLARITY STUDIO
+//  PHASE 2 — SITUATION INTELLIGENCE BRIEF
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── CS Audience Toggle ───────────────────────────────────────────────────────
@@ -859,7 +868,7 @@ function toggleAudio() {
 }
 
 function csSpeakNarration(text) {
-  if (csAudioMuted || csHasNativeAudio || !window.speechSynthesis || llSessionActive) return;
+  if (csAudioMuted || csHasNativeAudio || !window.speechSynthesis) return;
   const clean = text.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim();
   if (!clean) return;
   // Capture which frame card this narration belongs to (csCurrentFrameBody may change by the time it speaks)
@@ -874,7 +883,6 @@ function csSpeakNarration(text) {
     if (card) {
       card.classList.remove('frame-pending');
       card.classList.add('frame-active');
-      _csAutoScroll = true;
       card.scrollIntoView({ behavior: 'smooth', block: 'start' });
       const idx = _csFrameCards.indexOf(card);
       if (idx >= 0) _csCurrentSlideIndex = idx;
@@ -1111,13 +1119,13 @@ function _nanoBananaFetch(prompt, mapDiv, altText, card) {
       mapDiv.appendChild(img);
     })
     .catch(err => {
-      _dbgLog('p2', `Nano Banana failed: ${err} — falling back to wrong_path.png`, 'warn');
-      const img = document.createElement('img');
-      img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:6px';
-      img.src = 'wrong_path.png';
-      img.alt = altText || 'Slide illustration';
-      mapDiv.innerHTML = '';
-      mapDiv.appendChild(img);
+      _dbgLog('p2', `Image generation unavailable: ${err}`, 'warn');
+      mapDiv.innerHTML =
+        `<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#475569;font-size:12px;border-radius:6px;background:rgba(15,23,42,0.4);border:1px solid rgba(71,85,105,0.3)">` +
+        `<span style="font-size:28px;opacity:0.4">🖼</span>` +
+        `<span>${csEscapeHtml(altText || 'Illustration')}</span>` +
+        `<span style="font-size:10px;opacity:0.5">Image generation unavailable</span>` +
+        `</div>`;
     })
     .finally(() => {
       if (card) card.classList.replace('frame-pending', 'frame-active');
@@ -1131,11 +1139,18 @@ function csRenderVideoPlayer(tag) {
 
   const header = document.createElement('div');
   header.className = 'video-ge-header';
-  header.innerHTML = `<span class="video-tag">🖼 AI IMAGE</span><span class="video-label">${csEscapeHtml(label.replace(/_/g, ' ').toUpperCase())}</span>`;
+  header.innerHTML = `<span class="video-tag">▶ VIDEO</span><span class="video-label">${csEscapeHtml(label.replace(/_/g, ' ').toUpperCase())}</span>`;
   wrap.appendChild(header);
 
   const mapDiv = document.createElement('div');
   mapDiv.className = 'video-ge-frame';
+  mapDiv.innerHTML =
+    `<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#475569;font-size:12px">` +
+    `<div class="cs-timelapse-anim">` +
+      `<span></span><span></span><span></span><span></span><span></span>` +
+    `</div>` +
+    `<span style="color:#64748b;letter-spacing:0.05em;font-size:11px">${csEscapeHtml(label.replace(/_/g, ' ').toUpperCase())}</span>` +
+    `</div>`;
   wrap.appendChild(mapDiv);
 
   const ge = _csLastGECoords;
@@ -1147,66 +1162,128 @@ function csRenderVideoPlayer(tag) {
     wrap.appendChild(btn);
   }
 
-  // Capture narrator context at call time (may change as more lines stream in)
-  const narratorCtx = csLastNarratorText;
-  const frameLabel = label.replace(/_/g, ' ');
-  const imagePrompt = _nanoBananaPrompt(frameLabel, narratorCtx);
-  const card = wrap.closest?.('.frame-card') ?? csCurrentFrameBody?.closest('.frame-card');
-  _nanoBananaFetch(imagePrompt, mapDiv, frameLabel, card);
-
   return wrap;
 }
 
 function csSanitizeMermaid(src) {
-  // Remove problem directive lines
-  src = src.replace(/^\s*(linkStyle|classDef|style)\s+.*$/gm, '');
-  // Fix quoted labels: collapse internal newlines, strip --> which breaks the lexer
+  // Strip stray code-fence markers that sometimes leak from the LLM
+  src = src.replace(/^```(?:mermaid)?\s*/gm, '').replace(/^```\s*$/gm, '');
+  // Remove directives that Mermaid.js rejects or mis-parses
+  src = src.replace(/^\s*(linkStyle|classDef|style|%%[^\n]*)\s*$/gm, '');
+  // Remove :::className suffixes (Mermaid v10 feature but causes lexer errors on some builds)
+  src = src.replace(/:::\w+/g, '');
+  // Ensure a graph type line is present
+  const firstLine = src.split('\n').find(l => l.trim());
+  if (firstLine && !/^(flowchart|graph|sequenceDiagram|stateDiagram|erDiagram|pie|gantt|gitGraph|mindmap|timeline)/i.test(firstLine.trim())) {
+    src = 'flowchart TD\n' + src;
+  }
+  // Fix quoted labels: collapse internal newlines, strip --> and parens inside quotes
   src = src.replace(/"([^"]*)"/g, (_, inner) =>
     `"${inner.replace(/\s*\n\s*/g, ' ').replace(/-->/g, '→').replace(/[()]/g, '')}"`
   );
-  // Wrap unquoted square-bracket labels that contain special chars in quotes
+  // Wrap unquoted square-bracket/angle labels containing problematic chars
   src = src.replace(/\[([^\]"]+)\]/g, (match, inner) => {
-    if (/[()[\]<>\/\\]/.test(inner) || /\n/.test(inner)) {
-      const clean = inner.replace(/[()[\]<>\/\\]/g, '').replace(/\s*\n\s*/g, ' ').replace(/"/g, "'").trim();
+    if (/[:()[\]<>\/\\|]/.test(inner) || /\n/.test(inner)) {
+      const clean = inner
+        .replace(/[()[\]<>\/\\|]/g, '')
+        .replace(/:/g, ' -')
+        .replace(/\s*\n\s*/g, ' ')
+        .replace(/"/g, "'")
+        .trim();
       return `["${clean}"]`;
     }
     return match;
   });
+  // Fix pipe-label arrows: strip colons/quotes from |label| that break the lexer
+  src = src.replace(/\|([^|]+)\|/g, (match, label) => {
+    const clean = label.replace(/[":]/g, '').trim();
+    return `|${clean}|`;
+  });
   return src.trim();
+}
+
+// Aggressive fallback: keep only lines that look structurally valid
+function _csMermaidNuke(src) {
+  const lines = src.split('\n');
+  const typeMatch = src.match(/^(flowchart|graph)\s+(TD|LR|TB|RL|BT)/m);
+  const out = [typeMatch ? typeMatch[0] : 'flowchart TD'];
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t || /^(flowchart|graph)\s/i.test(t) || t.startsWith('%%') ||
+        /^(linkStyle|classDef|style|subgraph|end\b)/.test(t)) continue;
+    // Keep lines that contain an arrow or a lone node definition
+    if (/-->|---/.test(t)) {
+      // Strip all node labels entirely — just keep the topology
+      const stripped = t
+        .replace(/\[("[^"]*")\]/g, '[$1]')
+        .replace(/\[([^\]"]+)\]/g, (_, inner) => {
+          const clean = inner.replace(/[()[\]<>\/\\|]/g, '').replace(/:/g, ' -').replace(/"/g, "'").trim();
+          return `["${clean}"]`;
+        })
+        .replace(/\|([^|]+)\|/g, (_, lbl) => `|${lbl.replace(/[":]/g, '').trim()}|`);
+      out.push(stripped);
+    }
+  }
+  return out.join('\n');
 }
 
 async function csRenderMermaid(diagramSource, container) {
   const wrap = document.createElement('div');
   wrap.className = 'diagram-wrap';
   container.appendChild(wrap);
-  try {
+
+  const attempts = [
+    () => csSanitizeMermaid(diagramSource),
+    () => _csMermaidNuke(diagramSource),
+  ];
+  let rendered = false;
+  for (let i = 0; i < attempts.length; i++) {
+    const src = attempts[i]();
     const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const { svg } = await mermaid.render(id, csSanitizeMermaid(diagramSource));
-    wrap.innerHTML = svg;
-  } catch (err) {
-    console.warn('Mermaid render error:', err);
-    wrap.innerHTML = `<pre style="color:#94a3b8;font-size:11px;text-align:left">${csEscapeHtml(diagramSource)}</pre>`;
+    try {
+      // Parse first — catches syntax errors without polluting the DOM
+      await mermaid.parse(src);
+      const { svg } = await mermaid.render(id, src);
+      wrap.innerHTML = svg;
+      rendered = true;
+      break;
+    } catch (err) {
+      console.warn(`Mermaid attempt ${i + 1} failed:`, err?.message || err);
+    }
+  }
+  if (!rendered) {
+    // Styled fallback — readable, not a dump of raw source
+    wrap.innerHTML =
+      `<div style="background:#0d1b2a;border:1px solid #1e3a5f;border-radius:8px;padding:12px">` +
+      `<div style="color:#f59e0b;font-size:11px;font-weight:600;margin-bottom:6px">⚠ Diagram could not be rendered</div>` +
+      `<pre style="color:#94a3b8;font-size:11px;margin:0;white-space:pre-wrap;word-break:break-all">${csEscapeHtml(diagramSource)}</pre>` +
+      `</div>`;
   }
 
-  // Add a Nano Banana repainted visual below the diagram for readability
+  // Try to replace the mermaid diagram with an AI-generated image.
+  // On success the diagram is hidden and the image takes its place.
+  // On failure the mermaid stays — nothing changes.
   const diagramDesc = diagramSource.replace(/```/g, '').trim().slice(0, 400);
   const prompt = _nanoBananaPrompt(
     `Data flow / network diagram visualization: ${diagramDesc}`,
     csLastNarratorText
   );
-  const imgWrap = document.createElement('div');
-  imgWrap.className = 'video-player';
-  imgWrap.style.marginTop = '12px';
-  const imgHeader = document.createElement('div');
-  imgHeader.className = 'video-ge-header';
-  imgHeader.innerHTML = '<span class="video-tag">🖼 AI IMAGE</span><span class="video-label">DIAGRAM VISUALIZATION</span>';
-  const imgFrame = document.createElement('div');
-  imgFrame.className = 'video-ge-frame';
-  imgWrap.appendChild(imgHeader);
-  imgWrap.appendChild(imgFrame);
-  container.appendChild(imgWrap);
-  const mermaidCard = container.closest('.frame-card');
-  _nanoBananaFetch(prompt, imgFrame, 'Diagram visualization', mermaidCard);
+  const apiKey = getApiKey();
+  fetch('/generate-image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, api_key: apiKey || null }),
+  })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(data => {
+      const img = document.createElement('img');
+      img.style.cssText = 'width:100%;border-radius:6px;display:block';
+      img.src = `data:${data.mime_type};base64,${data.image}`;
+      img.alt = 'Diagram visualization';
+      wrap.innerHTML = '';
+      wrap.appendChild(img);
+    })
+    .catch(() => { /* keep mermaid */ });
 }
 
 function csRenderScorecard(text) {
@@ -1214,8 +1291,15 @@ function csRenderScorecard(text) {
   const level = text.includes('🔴') ? 'red' : text.includes('🟡') ? 'amber' : 'green';
   div.className = `scorecard ${level}`;
   const lines = text.split('\n').filter(l => l.trim());
-  const title = lines[0].replace(/\[|\]/g, '').trim();
-  const body = lines.slice(1).join('\n');
+  // Strip markdown bold markers, brackets, and "Title:"/"Body:" prefixes
+  const title = lines[0]
+    .replace(/^Title:\s*/i, '')
+    .replace(/\*\*/g, '')
+    .replace(/\[|\]/g, '')
+    .trim();
+  const body = lines.slice(1).join('\n')
+    .replace(/^Body:\s*/i, '')
+    .trim();
   div.innerHTML = `
     <div class="scorecard-title">${csEscapeHtml(title)}</div>
     <div class="scorecard-body">${csParseInlineMarkdown(body)}</div>
@@ -1640,7 +1724,6 @@ async function startBriefing(fromHandoff = false) {
 
     if (csStreamBuffer.trim()) { csStreamBuffer += '\n'; csProcessBuffer(); }
     csFlushScorecard();
-    csAddPreLastSlideImage();
     csAddGroundingBadge();
     csSetStatus('', 'Complete');
     csShowReplayBtn();
@@ -1845,12 +1928,7 @@ function cs3OpenGE() {
 
   // Send scan trigger — do NOT reveal the expected answer, let the agent observe
   if (cs3Ws && cs3Ws.readyState === WebSocket.OPEN) {
-    const brief =
-      `[GOOGLE_EARTH_OPENED] Google Earth is now open. Screen share is active.\n` +
-      `Circuit on screen: ${origin} → ${dest} (${t.circuit_id || 'N/A'})\n` +
-      `Begin VISUAL SCAN PROTOCOL now.\n` +
-      `Start with STEP 1: describe the polyline shape you see on screen right now.\n` +
-      `Do NOT assume the route is correct or incorrect. Look first, judge second.`;
+    const brief = `GOOGLE EARTH OPEN. Circuit: ${origin} → ${dest} (${t.circuit_id || 'N/A'}). SCAN NOW.`;
     cs3Ws.send(JSON.stringify({ type: 'override_alert', text: brief }));
   }
 }
@@ -1935,6 +2013,10 @@ let cs3FrameInterval   = null;
 let cs3AnalyseInterval = null;
 let cs3ScanCountdown   = null;  // 1-second tick driving the scan timer badge
 let _cs3ScanSecsLeft   = 10;
+let _cs3PrevFrameHash  = null;  // lightweight change detection (32×18 thumb pixel sum)
+let _cs3ChangeCooldown = false; // debounce: one change-triggered rescan per 3s
+let _cs3ScanPending    = false; // true while agent is processing a scan — prevents queue pile-up
+let _cs3GeNotifiedOnce = false; // GE-not-visible alert fires at most once per session
 
 // Phase 3 audio playback (24 kHz PCM from Gemini)
 let cs3PlaybackCtx  = null;
@@ -2034,6 +2116,7 @@ function cs3AppendAction(action) {
 // ─── CS3 Route Verdict Detection ──────────────────────────────────────────────
 let _cs3AnimTriggered    = false;
 let _cs3RouteWasInvalid  = false;
+let _cs3RouteSnapshot    = null;
 
 function cs3CheckReroutePhrase(text) {
   if (_cs3AnimTriggered || !text || !cs3ScreenActive) return;
@@ -2051,6 +2134,7 @@ function cs3CheckValidVerdict(text) {
   _dbgLog('p3', `Verdict check — screenActive=${cs3ScreenActive} | text="${text.slice(0,80)}"`, 'info');
   if (/ROUTE INVALID|SCAN COMPLETE[^.]*INVALID/i.test(text) && !_cs3AnimTriggered) {
     _dbgLog('p3', 'VERDICT: ROUTE INVALID → triggering I-10 animation', 'warn');
+    _cs3ScanPending = false;
     _cs3AnimTriggered = true;
     _cs3RouteWasInvalid = true;
     cs3UpdateRouteStatus('invalid');
@@ -2061,9 +2145,14 @@ function cs3CheckValidVerdict(text) {
   }
   if (/ROUTE VALID|SCAN COMPLETE[^.]*VALID/i.test(text) && !/INVALID/i.test(text)) {
     _dbgLog('p3', 'VERDICT: ROUTE VALID → resolving ticket and ending session', 'info');
+    _cs3ScanPending = false;
+    // Kill scan intervals immediately — prevents another scan firing during the 5s wind-down
+    clearInterval(cs3AnalyseInterval); cs3AnalyseInterval = null;
+    clearInterval(cs3ScanCountdown);   cs3ScanCountdown = null;
+    const timerEl = document.getElementById('cs3-scan-timer');
+    if (timerEl) timerEl.textContent = '';
     _cs3ResolveTicket('route confirmed valid by agent');
     cs3AppendTranscript('[Route confirmed valid — ending session in ~5s]', 'system');
-    // Tell agent to sign off verbally, then auto-stop
     if (cs3Ws && cs3Ws.readyState === WebSocket.OPEN) {
       cs3Ws.send(JSON.stringify({
         type: 'override_alert',
@@ -2123,19 +2212,100 @@ function cs3AnimateI10Route() {
     `size:small|color:green|label:D|${_I10_NODES[_I10_NODES.length-1][0]},${_I10_NODES[_I10_NODES.length-1][1]}`,
   ]);
 
-  if (!url) return;
+  if (url) {
+    const newImg = document.createElement('img');
+    newImg.className = 'cs3-static-map cs3-static-map-i10';
+    newImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:3;opacity:0;transition:opacity 1.2s';
+    newImg.src = url;
+    newImg.onload = () => {
+      newImg.style.opacity = '1';
+      cs3UpdateRouteStatus('valid');
+      cs3AppendTranscript('✓ I-10 Southern Corridor committed — RTT returning to 11.1 ms baseline.', 'system');
+      cs3ShowApprovalBar(cs3PendingHandoff);
+    };
+    mapDiv.appendChild(newImg);
+  } else {
+    // No Maps API key — draw I-10 route as SVG projected over wrong_path.png
+    _cs3DrawI10SVG(mapDiv);
+  }
+}
 
-  const newImg = document.createElement('img');
-  newImg.className = 'cs3-static-map cs3-static-map-i10';
-  newImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:3;opacity:0;transition:opacity 1.2s';
-  newImg.src = url;
-  newImg.onload = () => {
-    newImg.style.opacity = '1';
-    cs3UpdateRouteStatus('valid');
-    cs3AppendTranscript('✓ I-10 Southern Corridor committed — RTT returning to 11.1 ms baseline.', 'system');
-    cs3ShowApprovalBar(cs3PendingHandoff);
+// Geographic bounds that wrong_path.png roughly covers (SFO→PHX + Sierra Nevada region)
+const _MAP_BOUNDS = { north: 42.0, south: 29.5, west: -126.0, east: -107.0 };
+
+function _cs3NodeToXY(lat, lon) {
+  const { north, south, west, east } = _MAP_BOUNDS;
+  return {
+    x: ((lon - west) / (east - west) * 100).toFixed(2),
+    y: ((north - lat) / (north - south) * 100).toFixed(2),
   };
-  mapDiv.appendChild(newImg);
+}
+
+function _cs3DrawI10SVG(mapDiv) {
+  mapDiv.querySelectorAll('.cs3-i10-svg').forEach(el => el.remove());
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.className = 'cs3-i10-svg';
+  svg.setAttribute('viewBox', '0 0 100 100');
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;z-index:3;opacity:0;transition:opacity 1.2s';
+
+  const pts = _I10_NODES.map(([lat, lon]) => {
+    const { x, y } = _cs3NodeToXY(lat, lon);
+    return `${x},${y}`;
+  }).join(' ');
+
+  // Glow
+  const glow = document.createElementNS(NS, 'polyline');
+  glow.setAttribute('points', pts);
+  glow.setAttribute('stroke', '#22c55e');
+  glow.setAttribute('stroke-width', '2.5');
+  glow.setAttribute('stroke-opacity', '0.25');
+  glow.setAttribute('fill', 'none');
+  svg.appendChild(glow);
+
+  // Main line
+  const line = document.createElementNS(NS, 'polyline');
+  line.setAttribute('points', pts);
+  line.setAttribute('stroke', '#22c55e');
+  line.setAttribute('stroke-width', '0.9');
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke-linecap', 'round');
+  line.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(line);
+
+  // Animated dash overlay
+  const dash = document.createElementNS(NS, 'polyline');
+  dash.setAttribute('points', pts);
+  dash.setAttribute('stroke', '#4ade80');
+  dash.setAttribute('stroke-width', '0.5');
+  dash.setAttribute('fill', 'none');
+  dash.setAttribute('stroke-dasharray', '2 2');
+  dash.style.animation = 'cs3DashFlow 1.5s linear infinite';
+  svg.appendChild(dash);
+
+  // Endpoint dots
+  [_I10_NODES[0], _I10_NODES[_I10_NODES.length - 1]].forEach(([lat, lon]) => {
+    const { x, y } = _cs3NodeToXY(lat, lon);
+    const c = document.createElementNS(NS, 'circle');
+    c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', '1.4');
+    c.setAttribute('fill', '#22c55e');
+    svg.appendChild(c);
+  });
+
+  mapDiv.appendChild(svg);
+  // Fade in on next frame, then capture snapshot once fully visible
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    svg.style.opacity = '1';
+    setTimeout(() => {
+      cs3CaptureMapSnapshot().then(dataUrl => { if (dataUrl) _cs3RouteSnapshot = dataUrl; });
+    }, 1300); // wait for 1.2s CSS transition to finish
+  }));
+
+  cs3UpdateRouteStatus('valid');
+  cs3AppendTranscript('✓ I-10 Southern Corridor committed — RTT returning to 11.1 ms baseline.', 'system');
+  cs3ShowApprovalBar(cs3PendingHandoff);
 }
 
 // ─── CS3 Route Approval ───────────────────────────────────────────────────────
@@ -2167,6 +2337,40 @@ function cs3ShowApprovalBar(handoff) {
   panel.appendChild(bar);
 }
 
+// ─── CS3 Map Snapshot ─────────────────────────────────────────────────────────
+function cs3CaptureMapSnapshot() {
+  return new Promise((resolve) => {
+    const mapDiv = document.getElementById('cs3-route-map');
+    if (!mapDiv) return resolve(null);
+    const baseImg = mapDiv.querySelector('img');
+    if (!baseImg) return resolve(null);
+    const W = mapDiv.offsetWidth  || 640;
+    const H = mapDiv.offsetHeight || 400;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const bg = new Image();
+    bg.crossOrigin = 'anonymous';
+    bg.onload = () => {
+      ctx.drawImage(bg, 0, 0, W, H);
+      const svg = mapDiv.querySelector('svg');
+      if (!svg) return resolve(canvas.toDataURL('image/jpeg', 0.9));
+      // Stamp svg viewBox to match canvas size before serialising
+      svg.setAttribute('width', W);
+      svg.setAttribute('height', H);
+      const xml  = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([xml], { type: 'image/svg+xml' });
+      const url  = URL.createObjectURL(blob);
+      const si   = new Image();
+      si.onload  = () => { ctx.drawImage(si, 0, 0, W, H); URL.revokeObjectURL(url); resolve(canvas.toDataURL('image/jpeg', 0.9)); };
+      si.onerror = () => { URL.revokeObjectURL(url); resolve(canvas.toDataURL('image/jpeg', 0.9)); };
+      si.src = url;
+    };
+    bg.onerror = () => resolve(null);
+    bg.src = baseImg.src;
+  });
+}
+
 // Shared: mark ticket resolved + close GE window.
 // In-memory only — no persistence, resets on page refresh.
 function _cs3ResolveTicket(reason) {
@@ -2178,6 +2382,26 @@ function _cs3ResolveTicket(reason) {
   cs3UpdateRouteStatus('valid');
   cs3AppendTranscript(`[Ticket resolved — ${reason}]`, 'system');
   _dbgLog('p3', `Ticket resolved: ${reason}`, 'info');
+  // Use pre-captured snapshot (taken after SVG fade-in) or fall back to fresh capture
+  const snapshotPromise = _cs3RouteSnapshot
+    ? Promise.resolve(_cs3RouteSnapshot)
+    : cs3CaptureMapSnapshot();
+  snapshotPromise.then(dataUrl => {
+    if (!dataUrl) return;
+    const mapDiv = document.getElementById('cs3-route-map');
+    if (!mapDiv) return;
+    // Remove SVG overlay and secondary images — the snapshot already composites them
+    mapDiv.querySelectorAll('svg').forEach(el => el.remove());
+    mapDiv.querySelectorAll('img.cs3-static-map-i10').forEach(el => el.remove());
+    // Replace wrong_path.png with the baked screenshot
+    const baseImg = mapDiv.querySelector('img.cs3-static-map');
+    if (baseImg) {
+      baseImg.style.opacity = '1';
+      baseImg.src = dataUrl;
+      baseImg.alt = 'Corrected I-10 route';
+      baseImg.style.border = '2px solid rgba(34,197,94,0.4)';
+    }
+  });
   // Close the Google Earth window that was opened to inspect the route
   if (geWindowRef && !geWindowRef.closed) {
     geWindowRef.close();
@@ -2244,15 +2468,24 @@ async function cs3StartSession() {
     _dbgLog('p3', `WS connected → ${wsUrl}`, 'system');
     cs3AppendTranscript('[Connected to Situation Intelligence Brief]', 'system');
     await cs3StartMic();
-    cs3StartKeywordDetection();
     cs3SetListening(true);
     // Check GE after agent has had a moment to initialise
     setTimeout(_cs3NotifyGeVisibility, 2000);
   };
   cs3Ws.onclose = () => {
     _dbgLog('p3', 'WS closed', 'system');
-    cs3AppendTranscript('[Session closed]', 'system');
-    cs3StopSession();
+    cs3Ws = null;
+    // If approval bar is visible (route was fixed), keep the UI alive so user can approve.
+    // Otherwise tear down normally.
+    const approvalVisible = !!document.getElementById('cs3-approval-bar');
+    if (approvalVisible) {
+      cs3AppendTranscript('[Connection closed — route correction saved. Click Approve or End Session.]', 'system');
+      cs3SetListening(false);
+      cs3SetStatus('disconnected');
+    } else {
+      cs3AppendTranscript('[Session closed]', 'system');
+      cs3StopSession();
+    }
   };
   cs3Ws.onerror = (e) => {
     _dbgLog('p3', `WS error: ${e.message || 'unknown'}`, 'error');
@@ -2264,8 +2497,15 @@ async function cs3StartSession() {
       cs3ScheduleAudio(msg.data);
     } else if (msg.type === 'text') {
       cs3AppendTranscript(msg.content, 'ai');
+      _cs3ScanPending = false; // any agent response means scan was processed
       cs3CheckReroutePhrase(msg.content);
       cs3CheckValidVerdict(msg.content);
+      // Voice commands acknowledged by agent → act on them
+      if (/ending.{0,20}session|session.{0,10}end(ed|ing)?/i.test(msg.content)) {
+        setTimeout(cs3StopSession, 800);
+      } else if (/rescanning|scanning now|initiating scan|starting scan/i.test(msg.content)) {
+        cs3ForceRescan();
+      }
     } else if (msg.type === 'action') {
       cs3AppendAction(msg);
       cs3SetStatus('executing');
@@ -2282,9 +2522,10 @@ function cs3StopSession() {
   cs3SessionActive = false;
   _cs3AnimTriggered = false;
   _cs3RouteWasInvalid = false;
+  _cs3RouteSnapshot = null;
+  _cs3GeNotifiedOnce = false;
   document.getElementById('cs3-approval-bar')?.remove();
   cs3StopScreenShare();
-  cs3StopKeywordDetection();
   if (cs3WorkletNode) { try { cs3WorkletNode.disconnect(); } catch (e) {} cs3WorkletNode = null; }
   if (cs3CaptureCtx)  { cs3CaptureCtx.close().catch(() => {}); cs3CaptureCtx = null; }
   if (cs3MicStream)   { cs3MicStream.getTracks().forEach(t => t.stop()); cs3MicStream = null; }
@@ -2346,19 +2587,18 @@ registerProcessor('pcm-capture', PCMCapture);`;
 }
 
 // ─── CS3 Google Earth visibility check ────────────────────────────────────────
-// Called after session opens and after screen share starts.
-// If Google Earth popup is not open, agent is told it cannot see the map.
+// Fires once per session after the session opens. Notifies the agent if GE is not open.
 function _cs3NotifyGeVisibility() {
   if (!cs3Ws || cs3Ws.readyState !== WebSocket.OPEN) return;
   const geOpen = geWindowRef && !geWindowRef.closed;
-  if (geOpen) return;  // all good — nothing to say
-  _dbgLog('p3', 'Google Earth not open — notifying agent', 'warn');
+  if (geOpen) return;
+  if (_cs3GeNotifiedOnce) return;  // only tell the agent once — avoid repeated announcements
+  _cs3GeNotifiedOnce = true;
+  _dbgLog('p3', 'Google Earth not open — notifying agent (once)', 'warn');
   cs3AppendTranscript('[Google Earth not open — agent notified]', 'system');
   cs3Ws.send(JSON.stringify({
     type: 'override_alert',
-    text: 'IMPORTANT: Google Earth is not currently open and you cannot see the route map visually. ' +
-          'Tell the user: "I cannot see Google Earth right now — please open it for visual route analysis." ' +
-          'Then continue with telemetry data only until Google Earth is shared.',
+    text: 'Google Earth not visible. Tell the user to open it using the button, then wait silently.',
   }));
 }
 
@@ -2377,27 +2617,28 @@ async function cs3StartScreenShare() {
     if (agentView) agentView.style.display = 'block';
     cs3ScreenStream.getVideoTracks()[0].onended = () => cs3StopScreenShare();
     // Re-check GE visibility now that the agent can see frames
-    setTimeout(_cs3NotifyGeVisibility, 1500);
+    _cs3PrevFrameHash = null;
+    _cs3ChangeCooldown = false;
+    _cs3ScanPending = false;
     // Send 1 frame per second
     cs3FrameInterval = setInterval(() => cs3SendFrame(), 1000);
-    // Scan countdown — ticks every second, resets to 10 when analyse fires
-    _cs3ScanSecsLeft = 10;
+    // Scan countdown — ticks every second, resets to 5 when analyse fires
+    _cs3ScanSecsLeft = 5;
     cs3ScanCountdown = setInterval(() => {
       _cs3ScanSecsLeft = Math.max(0, _cs3ScanSecsLeft - 1);
       const el = document.getElementById('cs3-scan-timer');
       if (el) el.textContent = ` · scan ${_cs3ScanSecsLeft}s`;
     }, 1000);
-    // Every 10 seconds — enough time for the agent to complete a full 4-step scan
+    // Every 5 seconds — skipped if agent is still processing the previous scan
     cs3AnalyseInterval = setInterval(() => {
-      _cs3ScanSecsLeft = 10;  // reset countdown
-      if (cs3Ws?.readyState === WebSocket.OPEN) {
+      _cs3ScanSecsLeft = 5;
+      if (cs3Ws?.readyState === WebSocket.OPEN && !_cs3ScanPending) {
+        _cs3ScanPending = true;
         cs3UpdateRouteStatus('scanning');
-        cs3Ws.send(JSON.stringify({
-          type: 'override_alert',
-          text: 'FRAME SCAN. Look at the current frame only. STEP 1: describe the polyline shape in one sentence — where does it start, which direction does it travel, does it curve north or south, where does it end. Do not judge yet. Describe only what you see.',
-        }));
+        cs3AppendTranscript('[Scan]', 'system');
+        cs3Ws.send(JSON.stringify({ type: 'override_alert', text: 'SCAN.' }));
       }
-    }, 10000);
+    }, 5000);
   } catch (e) {
     cs3AppendTranscript(`[Screen error: ${e.message}]`, 'error');
   }
@@ -2405,6 +2646,9 @@ async function cs3StartScreenShare() {
 
 function cs3StopScreenShare() {
   _dbgLog('p3', 'Screen share stopped — last frame frozen', 'system');
+  _cs3PrevFrameHash = null;
+  _cs3ChangeCooldown = false;
+  _cs3ScanPending = false;
   clearInterval(cs3FrameInterval);   cs3FrameInterval = null;
   clearInterval(cs3AnalyseInterval); cs3AnalyseInterval = null;
   clearInterval(cs3ScanCountdown);   cs3ScanCountdown = null;
@@ -2428,8 +2672,36 @@ function cs3SendFrame() {
     const scale  = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
     canvas.width  = Math.floor(bmp.width  * scale);
     canvas.height = Math.floor(bmp.height * scale);
-    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+
+    // ── Lightweight change detection via 32×18 thumbnail pixel sum ──────────
+    // Detects significant screen content changes (route edits, map pans, etc.)
+    // and fires an immediate rescan instead of waiting for the 10s interval.
+    const thumb = document.createElement('canvas');
+    thumb.width = 32; thumb.height = 18;
+    thumb.getContext('2d').drawImage(bmp, 0, 0, 32, 18);
+    const px = thumb.getContext('2d').getImageData(0, 0, 32, 18).data;
+    let hash = 0;
+    for (let i = 0; i < px.length; i += 4) hash += px[i] + px[i + 1] + px[i + 2];
+
+    // Change detection runs even after INVALID/_cs3AnimTriggered —
+    // _cs3AnimTriggered only blocks re-triggering the I-10 animation, not rescanning.
+    if (_cs3PrevFrameHash !== null && !_cs3ChangeCooldown && !_cs3ScanPending) {
+      const relDiff = Math.abs(hash - _cs3PrevFrameHash) / (32 * 18 * 3 * 255);
+      if (relDiff > 0.04) {
+        _cs3ChangeCooldown = true;
+        _cs3ScanPending = true;
+        setTimeout(() => { _cs3ChangeCooldown = false; }, 1500);
+        _cs3ScanSecsLeft = 5;
+        cs3UpdateRouteStatus('scanning');
+        cs3AppendTranscript('[Screen changed — rescan]', 'system');
+        cs3Ws.send(JSON.stringify({ type: 'override_alert', text: 'ROUTE CHANGED. SCAN NOW.' }));
+      }
+    }
+    _cs3PrevFrameHash = hash;
+
     cs3Ws.send(JSON.stringify({ type: 'frame', data: dataUrl.split(',')[1] }));
     // Mirror latest frame into the agent-view panel
     const agentView = document.getElementById('cs3-agent-view');
@@ -2445,41 +2717,12 @@ function cs3FireOverride() {
   cs3AppendTranscript('[Override alert sent]', 'system');
 }
 
-// ─── CS3 Voice Stop Detection ─────────────────────────────────────────────────
-let cs3SpeechRecog = null;
-
-function cs3StartKeywordDetection() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return;
-  try {
-    cs3SpeechRecog = new SR();
-    cs3SpeechRecog.continuous = true;
-    cs3SpeechRecog.interimResults = false;
-    cs3SpeechRecog.lang = 'en-US';
-    cs3SpeechRecog.onresult = (e) => {
-      if (!cs3SessionActive) return;
-      const transcript = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
-      if (/\b(stop|end|finish|done|exit|close)\b/.test(transcript)) {
-        cs3AppendTranscript('[Voice command detected — ending session]', 'system');
-        setTimeout(cs3StopSession, 300);
-      }
-    };
-    cs3SpeechRecog.onerror = () => {};
-    cs3SpeechRecog.onend = () => {
-      // Restart if session is still active (it auto-stops after silence)
-      if (cs3SessionActive && cs3SpeechRecog) {
-        try { cs3SpeechRecog.start(); } catch (e) {}
-      }
-    };
-    cs3SpeechRecog.start();
-  } catch (e) {}
-}
-
-function cs3StopKeywordDetection() {
-  if (cs3SpeechRecog) {
-    try { cs3SpeechRecog.stop(); } catch (e) {}
-    cs3SpeechRecog = null;
-  }
+// ─── CS3 Manual Rescan ────────────────────────────────────────────────────────
+function cs3ForceRescan() {
+  if (!cs3Ws || cs3Ws.readyState !== WebSocket.OPEN) return;
+  _cs3ScanPending = false; // allow immediate send even if previous scan pending
+  cs3Ws.send(JSON.stringify({ type: 'override_alert', text: 'SCAN.' }));
+  cs3AppendTranscript('[Manual rescan triggered]', 'system');
 }
 
 // ─── Init ──────────────────────────────────────────────────────────────────────
