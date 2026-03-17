@@ -1,0 +1,8 @@
+# Ignore local environment and secrets
+backend/.env
+.env
+backend/.venv/
+.venv/
+
+# OS specific clutter
+.DS_Store
