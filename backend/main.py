@@ -35,7 +35,7 @@ import asyncio
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import AsyncIterator
+from typing import AsyncIterator, Literal, Optional
 
 from fastapi import FastAPI, Header, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -120,6 +120,54 @@ _gemini_client: genai.Client | None = None
 _ll_client: genai.Client | None = None
 _ll_config: types.LiveConnectConfig | None = None
 
+# Runtime prompt overrides — edited from the UI, cleared on process restart
+_prompt_overrides: dict[str, str] = {}
+
+# Connected PyAutoGUI execution clients (local runner processes)
+_exec_clients: set[WebSocket] = set()
+
+
+class AgentAction(BaseModel):
+    """Structured action returned by the Circuit Stitcher VLM loop."""
+    narration: str
+    command: Literal["CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "DRAG", "TYPE", "KEY", "SCROLL", "WAIT", "DONE"]
+    x: Optional[int] = None
+    y: Optional[int] = None
+    from_x: Optional[int] = None
+    from_y: Optional[int] = None
+    to_x: Optional[int] = None
+    to_y: Optional[int] = None
+    text: Optional[str] = None
+    key: Optional[str] = None
+    amount: Optional[int] = None
+
+
+def _cs_generate_action(api_key: str | None, frame_bytes: bytes, system_prompt: str) -> dict | None:
+    """Run one VLM step: analyze screen frame, return structured AgentAction dict."""
+    effective_key = api_key or os.environ.get("GEMINI_API_KEY", "")
+    logger.info("CS using api_key=%s... (source=%s)",
+                effective_key[:12] if effective_key else "NONE",
+                "query_param" if api_key else "env_var")
+    client = _client_for_key(api_key)
+    config = types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        response_mime_type="application/json",
+        response_schema=AgentAction,
+        temperature=0.1,
+        max_output_tokens=512,
+    )
+    resp = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[
+            types.Part.from_bytes(data=frame_bytes, mime_type="image/jpeg"),
+            types.Part.from_text(text="Analyze the screen and take the next action toward the mission goal."),
+        ],
+        config=config,
+    )
+    if not resp.candidates:
+        return None
+    return json.loads(resp.text) if resp.text else None
+
 
 def get_gemini_client() -> genai.Client:
     global _gemini_client
@@ -169,7 +217,7 @@ def get_ll_config() -> types.LiveConnectConfig:
                 sliding_window=types.SlidingWindow(target_tokens=52428),
             ),
             system_instruction=types.Content(
-                parts=[types.Part.from_text(text=LL_SYSTEM_PROMPT)],
+                parts=[types.Part.from_text(text=_prompt_overrides.get("phase1", LL_SYSTEM_PROMPT))],
                 role="user",
             ),
         )
@@ -186,7 +234,7 @@ def get_cs_config() -> types.LiveConnectConfig:
             response_modalities=["AUDIO"],
             media_resolution="MEDIA_RESOLUTION_MEDIUM",
             system_instruction=types.Content(
-                parts=[types.Part.from_text(text=CS_SYSTEM_PROMPT)],
+                parts=[types.Part.from_text(text=_prompt_overrides.get("phase3", CS_SYSTEM_PROMPT))],
                 role="user",
             ),
             speech_config=types.SpeechConfig(
@@ -265,6 +313,53 @@ class HealthResponse(BaseModel):
 @app.get("/health", response_model=HealthResponse)
 async def health():
     return {"status": "ok", "version": "1.0.0"}
+
+
+@app.get("/prompts")
+async def get_prompts():
+    """Return all active system prompts (overrides take precedence)."""
+    return {
+        "phase1": {"name": "Latency Lens Live", "model": LL_MODEL,
+                   "prompt": _prompt_overrides.get("phase1", LL_SYSTEM_PROMPT),
+                   "modified": "phase1" in _prompt_overrides},
+        "phase2": {"name": "Situation Intelligence Brief", "model": "gemini-2.5-flash",
+                   "prompt": _prompt_overrides.get("phase2", SYSTEM_PROMPT),
+                   "modified": "phase2" in _prompt_overrides},
+        "phase3": {"name": "Circuit Stitcher", "model": CS_MODEL,
+                   "prompt": _prompt_overrides.get("phase3", CS_SYSTEM_PROMPT),
+                   "modified": "phase3" in _prompt_overrides},
+    }
+
+
+@app.put("/prompts/{phase}")
+async def update_prompt(phase: str, payload: dict):
+    """Save an edited system prompt. Invalidates Live session config caches."""
+    global _ll_config, _cs_config
+    if phase not in ("phase1", "phase2", "phase3"):
+        return {"ok": False, "error": "unknown phase"}
+    text = payload.get("prompt", "").strip()
+    if not text:
+        return {"ok": False, "error": "empty prompt"}
+    _prompt_overrides[phase] = text
+    # Invalidate cached Live configs so next session uses the new prompt
+    if phase == "phase1":
+        _ll_config = None
+    elif phase == "phase3":
+        _cs_config = None
+    logger.info("Prompt updated for %s (%d chars)", phase, len(text))
+    return {"ok": True, "phase": phase, "length": len(text)}
+
+
+@app.delete("/prompts/{phase}")
+async def reset_prompt(phase: str):
+    """Revert a phase prompt back to the default from prompt.py."""
+    global _ll_config, _cs_config
+    _prompt_overrides.pop(phase, None)
+    if phase == "phase1":
+        _ll_config = None
+    elif phase == "phase3":
+        _cs_config = None
+    return {"ok": True, "phase": phase}
 
 
 def _build_contents(
@@ -378,7 +473,7 @@ async def stream_gemini(
         )
 
     config = types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT + system_extra,
+        system_instruction=_prompt_overrides.get("phase2", SYSTEM_PROMPT) + system_extra,
         temperature=0.7,
         max_output_tokens=16384,
         response_modalities=["TEXT"],
@@ -636,7 +731,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             )
                         elif msg_type == "video":
                             await session.send_realtime_input(
-                                media={"mime_type": "image/jpeg", "data": data}
+                                video={"mime_type": "image/jpeg", "data": data}
                             )
                 except WebSocketDisconnect:
                     pass
@@ -702,90 +797,121 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.websocket("/cs-ws")
 async def cs_websocket_endpoint(websocket: WebSocket):
-    """Live session for Circuit Stitcher (Gemini Live API, audio+text+actions)."""
+    """Circuit Stitcher — VLM loop: stores screen frames, calls generate_content on each scan
+    trigger, returns structured AgentAction JSON to browser and exec clients. No Gemini Live
+    session — guaranteed structured output every call."""
     api_key = websocket.query_params.get("api_key") or None
     await websocket.accept()
-    try:
-        async with _cs_live_client_for_key(api_key).aio.live.connect(
-            model=CS_MODEL, config=get_cs_config()
-        ) as session:
 
-            async def browser_to_gemini():
+    latest_frame_b64: str | None = None
+    # maxsize=1 drops duplicate scan triggers while a generate_content call is in flight
+    scan_queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    cs_prompt = _prompt_overrides.get("phase3", CS_SYSTEM_PROMPT)
+
+    async def browser_to_gemini():
+        nonlocal latest_frame_b64
+        try:
+            while True:
+                msg = await websocket.receive_json()
+                msg_type = msg.get("type")
+                if msg_type == "frame":
+                    data = msg.get("data")
+                    if data:
+                        latest_frame_b64 = data
+                elif msg_type == "override_alert":
+                    logger.info("CS scan trigger: %s", msg.get("text", "")[:80])
+                    if not scan_queue.full():
+                        await scan_queue.put(msg.get("text", ""))
+                # audio / other message types silently ignored (no Live session)
+        except WebSocketDisconnect:
+            pass
+
+    async def agent_loop():
+        while True:
+            await scan_queue.get()
+            if latest_frame_b64 is None:
                 try:
-                    while True:
-                        msg = await websocket.receive_json()
-                        msg_type = msg.get("type")
-                        data = msg.get("data")
-                        if msg_type == "frame" and data:
-                            # send_realtime_input is required for image frames
-                            await session.send_realtime_input(
-                                media={"mime_type": "image/jpeg", "data": data}
-                            )
-                        elif msg_type == "audio" and data:
-                            # send_realtime_input for audio too (correct Live API pattern)
-                            await session.send_realtime_input(
-                                audio={"mime_type": "audio/pcm;rate=16000", "data": data}
-                            )
-                        elif msg_type == "override_alert":
-                            alert_text = msg.get("text", "[OVERRIDE_ALERT] Human engineer is drawing through prohibited terrain!")
-                            logger.warning("CS override alert: %s", alert_text)
-                            await session.send(input=alert_text, end_of_turn=True)
-                except WebSocketDisconnect:
-                    pass
-
-            async def gemini_to_browser():
-                try:
-                    while True:
-                        turn = session.receive()
-                        async for response in turn:
-                            if (
-                                hasattr(response, "server_content")
-                                and response.server_content
-                                and getattr(response.server_content, "interrupted", False)
-                            ):
-                                await websocket.send_json({"type": "interrupted"})
-                            if response.data:
-                                await websocket.send_json({
-                                    "type": "audio",
-                                    "data": base64.b64encode(response.data).decode(),
-                                })
-                            if response.text:
-                                clean_text, actions = parse_cs_action_tags(response.text)
-                                if clean_text:
-                                    await websocket.send_json({"type": "text", "content": clean_text})
-                                for action in actions:
-                                    await websocket.send_json({"type": "action", **action})
-                except WebSocketDisconnect:
-                    pass
-                except Exception as e:
-                    logger.error("cs gemini→browser error: %s", e, exc_info=True)
-                    try:
-                        await websocket.send_json({"type": "error", "message": str(e)})
-                    except Exception:
-                        pass
-
-            t1 = asyncio.create_task(browser_to_gemini())
-            t2 = asyncio.create_task(gemini_to_browser())
+                    await websocket.send_json({"type": "text", "content": "Waiting for screen frame…"})
+                except Exception:
+                    break
+                continue
             try:
-                await asyncio.wait([t1, t2], return_when=asyncio.FIRST_COMPLETED)
-            finally:
-                for task in [t1, t2]:
-                    if not task.done():
-                        task.cancel()
-                for task in [t1, t2]:
-                    try:
-                        await task
-                    except (asyncio.CancelledError, Exception):
-                        pass
+                frame_bytes = base64.b64decode(latest_frame_b64)
+                action = await asyncio.to_thread(
+                    _cs_generate_action, api_key, frame_bytes, cs_prompt
+                )
+                if action is None:
+                    await websocket.send_json({"type": "text", "content": "[Agent error — retrying next frame]"})
+                    continue
 
+                narration = action.get("narration", "")
+                if narration:
+                    await websocket.send_json({"type": "text", "content": narration})
+
+                command = action.get("command", "WAIT")
+                logger.info("CS action: cmd=%s x=%s y=%s narration=%s",
+                            command, action.get("x"), action.get("y"), narration[:60])
+
+                if command == "DONE":
+                    await websocket.send_json({"type": "action", "command": "CLICK_SAVE"})
+                elif command != "WAIT":
+                    action_msg = {"type": "action", **action}
+                    await websocket.send_json(action_msg)
+                    dead: set[WebSocket] = set()
+                    for exc in list(_exec_clients):
+                        try:
+                            await exc.send_json(action_msg)
+                        except Exception:
+                            dead.add(exc)
+                    _exec_clients.difference_update(dead)
+
+            except Exception as e:
+                logger.error("CS agent loop error: %s", e, exc_info=True)
+                try:
+                    await websocket.send_json({"type": "text", "content": f"[Agent error: {e}]"})
+                except Exception:
+                    break
+
+    t1 = asyncio.create_task(browser_to_gemini())
+    t2 = asyncio.create_task(agent_loop())
+    try:
+        await asyncio.wait([t1, t2], return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in [t1, t2]:
+            if not task.done():
+                task.cancel()
+        for task in [t1, t2]:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
+# ── Execution client WebSocket ────────────────────────────────────────────────
+
+@app.websocket("/exec-ws")
+async def exec_websocket(websocket: WebSocket):
+    """Local PyAutoGUI execution client. Receives action events and sends acks."""
+    await websocket.accept()
+    _exec_clients.add(websocket)
+    logger.info("Execution client connected. Total: %d", len(_exec_clients))
+    try:
+        while True:
+            msg = await websocket.receive_json()
+            if msg.get("type") == "ack":
+                logger.info("Action ack: command=%s status=%s error=%s",
+                            msg.get("command"), msg.get("status"), msg.get("error") or "")
     except WebSocketDisconnect:
         pass
-    except Exception as e:
-        logger.error("CS WebSocket session error: %s", e, exc_info=True)
-        try:
-            await websocket.send_json({"type": "error", "message": str(e)})
-        except Exception:
-            pass
+    finally:
+        _exec_clients.discard(websocket)
+        logger.info("Execution client disconnected. Remaining: %d", len(_exec_clients))
+
+
+@app.get("/exec-status")
+async def exec_status():
+    """Returns how many execution clients are currently connected."""
+    return {"connected": len(_exec_clients)}
 
 
 # ── Serve frontend static files ───────────────────────────────────────────────

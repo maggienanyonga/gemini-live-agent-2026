@@ -240,48 +240,10 @@ a.phase-pill:hover {
   z-index: 10;
 }
 
-/* ── Controls Panel ───────────────────────────────────── */
-.panel-controls {
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 0;
-  overflow: hidden;
-  min-height: 0;
-}
-
-/* Textarea field-group stretches to fill remaining panel space */
-.field-group-grow {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 .code-input-grow {
   flex: 1;
-  min-height: 0;
+  min-height: 80px;
   resize: none;
-}
-
-.field-group {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.field-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin-bottom: 10px;
 }
 .label-sample-btn {
   background: none;
@@ -410,60 +372,6 @@ a.phase-pill:hover {
   justify-content: center;
 }
 
-/* Buttons */
-.btn-generate {
-  flex-shrink: 0;
-  margin: 16px 20px 8px;
-  padding: 12px 0;
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius);
-  color: #fff;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-.btn-generate:hover { background: var(--accent-dim); }
-.btn-generate:active { transform: scale(0.98); }
-.btn-generate:disabled { background: var(--text-muted); cursor: not-allowed; }
-
-.btn-icon { font-size: 12px; }
-
-.btn-clear {
-  flex-shrink: 0;
-  margin: 0 20px 16px;
-  padding: 8px 0;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-.btn-clear:hover { border-color: var(--red); color: var(--red); }
-
-.btn-push-cs3 {
-  margin: 0 20px 16px;
-  padding: 9px 0;
-  background: transparent;
-  border: 1px solid var(--green);
-  color: var(--green);
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  width: calc(100% - 40px);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.btn-push-cs3:hover { background: var(--green); color: #fff; }
 
 /* ── Output Panel ─────────────────────────────────────── */
 .panel-output {

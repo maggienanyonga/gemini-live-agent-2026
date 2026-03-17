@@ -88,6 +88,8 @@
             <span>Latency Lens Live is analyzing your circuit.</span>
           </div>
 
+          <button class="ll-btn ll-btn-secondary" style="margin-top:8px;font-size:11px;opacity:.7;" onclick="showPrompt('phase1')">&#128196; View System Prompt</button>
+
         </div>
       </aside>
 
@@ -223,20 +225,20 @@
     <main class="cs-layout">
 
       <!-- LEFT: Controls -->
-      <aside class="panel panel-controls">
+      <aside class="panel ll-panel">
         <div class="panel-header">Mission Parameters</div>
+        <div class="ll-panel-body">
 
-        <div class="field-group">
-          <label class="field-label">Target Audience</label>
+          <div class="ll-section-label">Target Audience</div>
           <div class="toggle-group" id="audienceToggle">
             <button class="toggle-btn active" data-value="CTO">CTO</button>
             <button class="toggle-btn" data-value="CFO">CFO</button>
             <button class="toggle-btn" data-value="CEO">CEO</button>
           </div>
-        </div>
 
-        <div class="field-group">
-          <label class="field-label">Grounding Source</label>
+          <hr class="ll-divider" />
+
+          <div class="ll-section-label">Grounding Source</div>
           <select id="groundingSelect" class="grounding-select" onchange="csSetGrounding(this.value)">
             <option value="NONE">— None —</option>
             <option value="RAG" selected>📄 RAG · SLA Document</option>
@@ -258,21 +260,22 @@
           </div>
           <textarea id="groundingExtraCtx" class="code-input" rows="3"
             placeholder="Paste extra context (runbooks, topology notes, etc.)…"
-            style="display:none;margin-top:6px;font-size:13px;resize:vertical"></textarea>
-        </div>
+            style="display:none;font-size:13px;resize:vertical"></textarea>
 
-        <button class="label-sample-btn" style="margin-bottom:8px;width:100%;text-align:left" onclick="csTogglePayload()" id="csPayloadToggle">&#x25B8; Show telemetry payload</button>
+          <hr class="ll-divider" />
 
-        <div class="field-group field-group-grow" id="telemetryGroup" style="display:none">
-          <label class="field-label">
-            Telemetry Payload (JSON)
-            <button class="label-sample-btn" onclick="csLoadSample()">&#x21BA; Load Sample</button>
-          </label>
-          <textarea
-            id="telemetryInput"
-            class="code-input code-input-grow"
-            spellcheck="false"
-          >{
+          <button class="label-sample-btn" style="width:100%;text-align:left" onclick="csTogglePayload()" id="csPayloadToggle">&#x25B8; Show telemetry payload</button>
+
+          <div id="telemetryGroup" style="display:none">
+            <div class="ll-section-label" style="margin-bottom:6px">
+              Telemetry Payload
+              <button class="label-sample-btn" onclick="csLoadSample()">&#x21BA; Load Sample</button>
+            </div>
+            <textarea
+              id="telemetryInput"
+              class="code-input code-input-grow"
+              spellcheck="false"
+            >{
   "severity": "CRITICAL",
   "circuit_id": "C2891-W-SFO-PHX",
   "fiber_route_km": 1200,
@@ -295,25 +298,29 @@
   ],
   "timestamp": "2026-03-15T14:07:09Z"
 }</textarea>
-        </div>
+          </div>
 
-        <div class="ll-info-box ll-speaking-box hidden" id="cs-narrating-indicator">
-          <strong>🔊 Narrating…</strong><br />
-          <span>Situation Intelligence Brief is presenting.</span>
+          <div class="ll-info-box ll-speaking-box hidden" id="cs-narrating-indicator">
+            <strong>🔊 Narrating…</strong><br />
+            <span>Situation Intelligence Brief is presenting.</span>
+          </div>
+          <div class="ll-info-box ll-speaking-box hidden" id="cs-listening-indicator" style="border-color:#22c55e;background:rgba(34,197,94,0.07)">
+            <strong style="color:#22c55e">● Generating…</strong><br />
+            <span>Processing telemetry data.</span>
+          </div>
+
+          <button class="ll-btn ll-btn-green" id="generateBtn" onclick="startBriefing()">
+            &#x25BA; Generate Briefing
+          </button>
+          <button class="ll-btn ll-btn-secondary" id="clearBtn" onclick="clearOutput()">
+            ✕ Clear
+          </button>
+          <button class="ll-btn" id="pushToCS3Btn" onclick="pushToCS3()" style="display:none;border-color:var(--green);color:var(--green);">
+            ➤ Push to Circuit Stitcher
+          </button>
+          <button class="ll-btn ll-btn-secondary" style="font-size:11px;opacity:.7;" onclick="showPrompt('phase2')">&#128196; View System Prompt</button>
+
         </div>
-        <div class="ll-info-box ll-speaking-box hidden" id="cs-listening-indicator" style="border-color:#22c55e;background:rgba(34,197,94,0.07)">
-          <strong style="color:#22c55e">● Generating…</strong><br />
-          <span>Processing telemetry data.</span>
-        </div>
-        <button class="btn-generate" id="generateBtn" onclick="startBriefing()">
-          <span class="btn-icon">▶</span> Generate Briefing
-        </button>
-        <button class="btn-clear" id="clearBtn" onclick="clearOutput()">
-          ✕ Clear
-        </button>
-        <button class="btn-push-cs3" id="pushToCS3Btn" onclick="pushToCS3()" style="display:none">
-          ➤ Push to Situation Intelligence Brief
-        </button>
       </aside>
 
       <!-- RIGHT: Storyboard Output -->
@@ -385,34 +392,30 @@
 
           <div class="ll-section-label">Status</div>
           <div class="ll-badge-row">
-            <div class="ll-badge ll-badge-inactive" id="cs3-mic-badge">
-              <div class="ll-badge-dot"></div>Microphone
-            </div>
             <div class="ll-badge ll-badge-inactive" id="cs3-screen-badge">
               <div class="ll-badge-dot"></div>Screen<span id="cs3-scan-timer" class="cs3-scan-timer"></span>
             </div>
+            <span class="ll-badge ll-badge-inactive" id="cs3-exec-badge">⚡ Exec: not connected</span>
           </div>
 
           <hr class="ll-divider" />
 
           <div class="ll-info-box">
             <strong>How to use:</strong><br />
-            1. Click <em>Start Session</em> to open a live channel.<br />
-            2. Share your screen (Google Earth must be visible).<br />
-            3. The agent validates route drawings in real time.<br />
-            4. Use <em>↻ Rescan</em> or say <em>"rescan"</em> for on-demand scans.<br />
-            5. Click <em>Stop Session</em> or say <em>"stop"</em> when done.
-          </div>
-
-          <div class="ll-info-box ll-speaking-box hidden" id="cs3-listening-indicator" style="border-color:#22c55e;background:rgba(34,197,94,0.07)">
-            <strong style="color:#22c55e">● Listening…</strong><br />
-            <span>Agent is monitoring your actions.</span>
+            1. Click <em>Start Session</em> to connect the agent.<br />
+            2. Click <em>Share Screen</em> — show Google Earth with a route.<br />
+            3. Agent scans automatically and fixes invalid routes.<br />
+            4. Review and approve the corrected route.
           </div>
 
           <div class="ll-info-box ll-speaking-box hidden" id="cs3-speaking-indicator">
-            <strong>&#9679; AI Executing&#8230;</strong><br />
-            <span>Agent is validating the route.</span>
+            <strong>&#9679; AI Speaking&#8230;</strong><br />
+            <span>Agent is analyzing the route.</span>
           </div>
+
+          <button class="ll-btn ll-btn-secondary hidden" id="cs3-save-btn" onclick="cs3SaveScreenshot()" style="font-size:12px;">&#128190; Save Route Screenshot</button>
+
+          <button class="ll-btn ll-btn-secondary" style="font-size:11px;opacity:.7;" onclick="showPrompt('phase3')">&#128196; View System Prompt</button>
 
         </div>
       </aside>
@@ -445,15 +448,19 @@
           <div class="ll-ticket-body" id="cs3-ticket-body"></div>
         </div>
 
-        <!-- Map — fills remaining space -->
-        <div id="cs3-route-panel" class="cs3-map-fill">
-          <div id="cs3-route-map">
-            <!-- Live agent-view: shows captured screen frames while screen share is active -->
-            <img id="cs3-agent-view" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1" alt="Agent view" />
+        <!-- Agent live view — fills remaining panel space -->
+        <div id="cs3-route-panel" class="cs3-map-fill" style="display:flex;flex-direction:column;min-height:0;background:#080b10;">
+          <!-- Live screen feed -->
+          <div style="flex:1;min-height:0;position:relative;overflow:hidden;" id="cs3-route-map">
+            <div id="cs3-no-screen" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#475569;font-size:13px;pointer-events:none;">
+              <span style="font-size:28px;">🖥</span>
+              <span>Start session — agent view appears here</span>
+            </div>
+            <img id="cs3-agent-view" style="display:none;width:100%;height:100%;object-fit:contain;position:relative;z-index:1;" alt="Live agent view" />
           </div>
+          <!-- Transcript log — always visible -->
+          <div id="cs3-transcript" style="flex-shrink:0;height:170px;overflow-y:auto;border-top:1px solid #1e293b;padding:6px 12px;font-size:11px;line-height:1.6;background:#0c1117;"></div>
         </div>
-
-        <div id="cs3-transcript" style="display:none"></div>
       </section>
 
     </div>
@@ -468,6 +475,28 @@
       <button class="quake-close" onclick="toggleQuakeConsole()">✕ Close</button>
     </div>
     <div class="quake-log" id="quake-log"></div>
+  </div>
+
+  <!-- ── Prompt Editor Modal ─────────────────────────────────────────────── -->
+  <div id="prompt-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);overflow:auto;" onclick="if(event.target===this)closePromptModal()">
+    <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;max-width:860px;margin:40px auto;padding:0;font-family:monospace;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #334155;flex-shrink:0;">
+        <div>
+          <span id="prompt-modal-title" style="color:#e2e8f0;font-size:13px;font-weight:600;letter-spacing:.05em;"></span>
+          <span id="prompt-modal-modified" style="margin-left:8px;font-size:10px;color:#f59e0b;display:none;">● modified</span>
+        </div>
+        <button onclick="closePromptModal()" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <div style="padding:6px 20px 4px;border-bottom:1px solid #1e293b;flex-shrink:0;">
+        <span id="prompt-modal-model" style="color:#64748b;font-size:11px;"></span>
+      </div>
+      <textarea id="prompt-modal-body" spellcheck="false" style="margin:0;padding:16px 20px;color:#94a3b8;font-size:11.5px;line-height:1.6;white-space:pre;font-family:monospace;background:#0f172a;border:none;outline:none;resize:none;height:60vh;width:100%;box-sizing:border-box;"></textarea>
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 20px;border-top:1px solid #334155;flex-shrink:0;">
+        <button id="prompt-save-btn" onclick="savePrompt()" style="background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:7px 18px;font-size:12px;cursor:pointer;font-family:monospace;">Save &amp; Apply</button>
+        <button id="prompt-reset-btn" onclick="resetPrompt()" style="background:none;color:#94a3b8;border:1px solid #334155;border-radius:5px;padding:7px 14px;font-size:12px;cursor:pointer;font-family:monospace;">Reset to Default</button>
+        <span id="prompt-save-status" style="font-size:11px;color:#22c55e;display:none;">✓ Saved — takes effect on next session</span>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

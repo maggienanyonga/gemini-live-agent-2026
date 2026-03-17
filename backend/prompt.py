@@ -167,7 +167,7 @@ Generate the full 4-frame storyboard now. Begin immediately with [SYSTEM LOG].""
 
 import re as _re
 
-CS_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+CS_MODEL = "gemini-2.5-flash"
 
 # ── SIMULATION: CS_SYSTEM_PROMPT is hardcoded for circuit C2891-W-SFO-PHX ──────
 # In production this prompt would be built dynamically from the handoff payload so
@@ -202,47 +202,47 @@ CS_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 # ─────────────────────────────────────────────────────────────────────────────────
 
 CS_SYSTEM_PROMPT = """\
-You are Circuit Stitcher, a real-time fiber route co-pilot. You watch the engineer's screen, validate route drawings against compliance rules, and guide corrections. You receive live screen frames and voice audio simultaneously.
+You are Circuit Stitcher — an autonomous fiber route correction agent for DIMAGGI NOC.
+You receive screenshots of the operator's screen. Analyze each screenshot and output the next mouse/keyboard action to fix circuit C2891-W-SFO-PHX in Google Earth.
 
-CIRCUIT: C2891-W-SFO-PHX | SFO (37.62N, 122.38W) → PHX (33.44N, 112.01W)
-Expected RTT: 11.1 ms | Measured: 15.2 ms | Delta: +4.1 ms (37%)
+MISSION: Draw the I-10 Southern Corridor fiber route in Google Earth:
+  SFO (San Francisco) → Los Angeles → Palm Springs → Tucson → PHX (Phoenix)
 
-COMPLIANCE RULES:
-- PROHIBITED ZONE: Sierra Nevada — lat 35.5N–38N, lon 121W–116W. Any polyline crossing = INVALID.
-- APPROVED CORRIDOR: I-10 Southern — stay at or below 34.5N latitude.
-- Waypoints: LA (34.05N, 118.25W) → Palm Springs (33.82N, 116.54W) → Tucson (32.22N, 110.97W) → PHX (33.44N, 112.01W).
+CRITICAL RULES:
+- Keep the route in the SOUTHERN half of the map. Never cross the Sierra Nevada mountains.
+- One action per response. The next screenshot arrives after the action executes.
+- Coordinates are pixel positions in the screenshot (typically 1280px wide max).
 
-ON SESSION START:
-Greet in one sentence: introduce yourself, confirm the circuit you are watching, and tell the engineer you are ready.
-Example: "Circuit Stitcher online — watching C2891-W-SFO-PHX. Share your screen and start drawing the route."
+WORKFLOW:
+  STEP 1 — FIND THE DRAWING TOOL:
+    Google Earth should be visible. Find the path/line drawing tool.
+    - Google Earth Web: left sidebar icons — pencil, line, or path icon
+    - Google Earth Desktop: top toolbar — "Add Path" or "New Path" button
+    → command: CLICK on the tool icon
 
-ON EVERY SCAN (screen frame received):
-Your response MUST start with exactly one of these three lines — the system parses them, do not paraphrase:
-  "SCAN COMPLETE. ROUTE INVALID. [one-line visual reason]."
-  "SCAN COMPLETE. ROUTE VALID. No correction required."
-  "No route visible on screen."
+  STEP 2 — DRAW 5 WAYPOINTS in order (click each on the map):
+    a. SFO — upper-LEFT of map (San Francisco Bay area)
+    b. Los Angeles — middle-left, below center
+    c. Palm Springs — right of LA, still in southern California
+    d. Tucson — further right, lower portion of map
+    e. PHX Phoenix — DOUBLE_CLICK here to finish the path
 
-After the verdict you MAY speak 1–2 guidance sentences. Be direct and actionable.
+  STEP 3 — SAVE:
+    A dialog appears. Click the name field, TYPE "C2891-W-SFO-PHX", click OK or Save button.
 
-COMPANION BEHAVIOUR:
-- INVALID: State which prohibited zone was crossed, then give the next concrete waypoint. "Route clips the Sierra Nevada near 36N — bring the line south through LA at 34N, then continue east."
-- VALID: Short confirmation. "Clean southern path — RTT should normalise to 11 ms."
-- ROUTE CHANGED: Acknowledge the change in one word or phrase before giving verdict. "New path — scanning."
-- NO ROUTE VISIBLE: Ask the engineer to open or position Google Earth. "I can't see a route. Make sure Google Earth is in the shared window."
-- DO NOT repeat the same verdict twice in a row if nothing has changed. If the route has not moved, stay silent until the next scan.
+  STEP 4 — DONE:
+    After the save confirmation, output command: DONE.
 
-VOICE COMMANDS (user speaks to you):
-- "rescan" / "scan now" → say "Scanning." then scan immediately.
-- "stop" / "end session" / "done" / "finish" → say "Ending session." — nothing else.
-- Any question → answer in 1–2 sentences, then offer to scan.
+SPECIAL CASES:
+- If Google Earth is not visible yet: command WAIT.
+- If a click had no visible effect: try nearby coordinates or a slightly different position.
+- If you see a dialog or popup: interact with it before continuing the route.
 
-RULES:
-- You are the engineer's co-pilot. They draw; you advise. Never imply the system will auto-fix anything.
-- Keep all responses short. This is a live working session, not a lecture.
-- Trust what you see on screen above any prior assumptions.
+Return valid JSON matching the AgentAction schema for every response.
 """
 
-_CS_ACTION_RE = _re.compile(r"\[ACTION:\s*([A-Z_]+)\]([^\[]*)", _re.DOTALL)
+# Matches both [ACTION: CMD x=1 y=2] (inline params) and [ACTION: CMD] legacy text
+_CS_ACTION_RE = _re.compile(r"\[ACTION:\s*([A-Z_]+)([^\]]*)\]", _re.DOTALL)
 
 
 def parse_cs_action_tags(text: str) -> tuple[str, list[dict]]:
@@ -250,14 +250,49 @@ def parse_cs_action_tags(text: str) -> tuple[str, list[dict]]:
     actions: list[dict] = []
     for match in _CS_ACTION_RE.finditer(text):
         action_type = match.group(1).strip()
-        params_str = match.group(2).strip()
+        params_str  = match.group(2).strip()
         action: dict = {"command": action_type}
+
+        # Numeric coordinate params: x= y= from_x= from_y= to_x= to_y= amount=
+        for kv in _re.finditer(
+            r'\b(x|y|from_x|from_y|to_x|to_y|amount)\s*=\s*(-?\d+(?:\.\d+)?)',
+            params_str,
+        ):
+            k, v = kv.group(1), kv.group(2)
+            action[k] = int(float(v))
+
+        # Float params: duration=
+        dur = _re.search(r'\bduration\s*=\s*(-?\d+(?:\.\d+)?)', params_str)
+        if dur:
+            action["duration"] = float(dur.group(1))
+
+        # text= param (for TYPE) — everything after text=
+        txt = _re.search(r'\btext\s*=\s*(.+)', params_str)
+        if txt:
+            action["text"] = txt.group(1).strip()
+
+        # key= param (for KEY)
+        key = _re.search(r'\bkey\s*=\s*(\S+)', params_str)
+        if key:
+            action["key"] = key.group(1)
+
+        # Bare text after TYPE with no key= (whole params_str is the text)
+        if action_type == "TYPE" and "text" not in action and params_str:
+            action["text"] = params_str
+
+        # Bare key after KEY with no key=
+        if action_type == "KEY" and "key" not in action and params_str:
+            action["key"] = params_str.split()[0]
+
+        # Legacy: Source -> / Destination -> / Target ->
         src = _re.search(r"Source\s*->\s*(\w+)", params_str)
         dst = _re.search(r"Destination\s*->\s*(\w+)", params_str)
         tgt = _re.search(r"Target\s*->\s*(\w+)", params_str)
         if src: action["source"] = src.group(1)
         if dst: action["destination"] = dst.group(1)
         if tgt: action["target"] = tgt.group(1)
+
         actions.append(action)
+
     clean_text = _CS_ACTION_RE.sub("", text).strip()
     return clean_text, actions

@@ -158,6 +158,72 @@ function _dbgLog(source, msg, type = 'info') {
   _updateQuakeCount();
 }
 
+// ─── Prompt Editor ────────────────────────────────────────────────────────────
+let _currentPromptPhase = null;
+
+async function showPrompt(phase) {
+  _currentPromptPhase = phase;
+  document.getElementById('prompt-save-status').style.display = 'none';
+  try {
+    const res = await fetch('/prompts');
+    const all = await res.json();
+    const data = all[phase];
+    if (!data) return;
+    document.getElementById('prompt-modal-title').textContent = data.name + ' — System Prompt';
+    document.getElementById('prompt-modal-model').textContent = 'Model: ' + data.model;
+    document.getElementById('prompt-modal-body').value = data.prompt;
+    const modBadge = document.getElementById('prompt-modal-modified');
+    modBadge.style.display = data.modified ? 'inline' : 'none';
+    document.getElementById('prompt-modal').style.display = 'block';
+  } catch (e) {
+    alert('Could not load prompts: ' + e.message);
+  }
+}
+
+async function savePrompt() {
+  if (!_currentPromptPhase) return;
+  const text = document.getElementById('prompt-modal-body').value.trim();
+  if (!text) return;
+  const btn = document.getElementById('prompt-save-btn');
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/prompts/${_currentPromptPhase}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: text }),
+    });
+    const json = await res.json();
+    if (json.ok) {
+      document.getElementById('prompt-modal-modified').style.display = 'inline';
+      const status = document.getElementById('prompt-save-status');
+      status.style.display = 'inline';
+      setTimeout(() => { status.style.display = 'none'; }, 3000);
+    }
+  } catch (e) {
+    alert('Save failed: ' + e.message);
+  } finally {
+    btn.textContent = 'Save & Apply';
+    btn.disabled = false;
+  }
+}
+
+async function resetPrompt() {
+  if (!_currentPromptPhase) return;
+  if (!confirm('Reset this prompt to the default from prompt.py?')) return;
+  try {
+    await fetch(`/prompts/${_currentPromptPhase}`, { method: 'DELETE' });
+    // Reload from server to show default
+    await showPrompt(_currentPromptPhase);
+  } catch (e) {
+    alert('Reset failed: ' + e.message);
+  }
+}
+
+function closePromptModal() {
+  document.getElementById('prompt-modal').style.display = 'none';
+}
+
 // ─── API Key ──────────────────────────────────────────────────────────────────
 function getApiKey() {
   return document.getElementById('apiKeyInput')?.value.trim() || '';
@@ -1926,10 +1992,16 @@ function cs3OpenGE() {
   cs3AppendTranscript(`[Google Earth opened] ${cid}${origin} → ${dest}`, 'system');
   cs3AppendTranscript(`TASK: ${action}`, 'system');
 
-  // Send scan trigger — do NOT reveal the expected answer, let the agent observe
+  // Tell agent GE is open and to start drawing immediately
   if (cs3Ws && cs3Ws.readyState === WebSocket.OPEN) {
-    const brief = `GOOGLE EARTH OPEN. Circuit: ${origin} → ${dest} (${t.circuit_id || 'N/A'}). SCAN NOW.`;
-    cs3Ws.send(JSON.stringify({ type: 'override_alert', text: brief }));
+    const cid = t.circuit_id || 'C2891-W-SFO-PHX';
+    cs3Ws.send(JSON.stringify({
+      type: 'override_alert',
+      text: `GOOGLE EARTH IS NOW OPEN on screen. Circuit ${cid}: ${origin} → ${dest}. ` +
+            `Find the Add Path or New Path drawing tool and click it. Then click each waypoint in order: ` +
+            `SFO area → Los Angeles → Palm Springs → Tucson → double-click Phoenix to finish. ` +
+            `DRAW THE ROUTE NOW. Output [ACTION: CLICK x=N y=N] immediately.`,
+    }));
   }
 }
 
@@ -2004,9 +2076,6 @@ function cs3UpdateRouteStatus(state) {
 // ─── CS3 State ────────────────────────────────────────────────────────────────
 let cs3SessionActive  = false;
 let cs3Ws             = null;
-let cs3MicStream      = null;
-let cs3CaptureCtx     = null;
-let cs3WorkletNode    = null;
 let cs3ScreenStream   = null;
 let cs3ScreenActive   = false;
 let cs3FrameInterval   = null;
@@ -2016,7 +2085,36 @@ let _cs3ScanSecsLeft   = 10;
 let _cs3PrevFrameHash  = null;  // lightweight change detection (32×18 thumb pixel sum)
 let _cs3ChangeCooldown = false; // debounce: one change-triggered rescan per 3s
 let _cs3ScanPending    = false; // true while agent is processing a scan — prevents queue pile-up
+let _cs3ScanPendingTimer = null; // auto-reset _cs3ScanPending if agent never responds
 let _cs3GeNotifiedOnce = false; // GE-not-visible alert fires at most once per session
+let _cs3SilenceInterval = null; // sends silent PCM to keep Live session active without mic
+
+// Pre-computed base64 of 100ms silence at 16kHz 16-bit PCM (3200 zero bytes)
+const _CS3_SILENCE_B64 = (() => {
+  const bytes = new Uint8Array(3200);
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+})();
+
+// ─── CS3 Execution client status ─────────────────────────────────────────────
+let _cs3ExecPollInterval = null;
+
+async function cs3PollExecStatus() {
+  try {
+    const res = await fetch('/exec-status');
+    const data = await res.json();
+    const badge = document.getElementById('cs3-exec-badge');
+    if (!badge) return;
+    if (data.connected > 0) {
+      badge.textContent = '⚡ Exec: ready';
+      badge.className = 'll-badge ll-badge-active-green';
+    } else {
+      badge.textContent = '⚡ Exec: not connected';
+      badge.className = 'll-badge ll-badge-inactive';
+    }
+  } catch (_) {}
+}
 
 // Phase 3 audio playback (24 kHz PCM from Gemini)
 let cs3PlaybackCtx  = null;
@@ -2066,9 +2164,6 @@ function cs3ClearAudioQueue() {
 
 function cs3SetAISpeaking(on) {
   document.getElementById('cs3-speaking-indicator')?.classList.toggle('hidden', !on);
-  // Show listening indicator only when session active and AI is not speaking
-  const listening = cs3SessionActive && !on;
-  document.getElementById('cs3-listening-indicator')?.classList.toggle('hidden', !listening);
 }
 
 // ─── CS3 Transcript ───────────────────────────────────────────────────────────
@@ -2108,6 +2203,8 @@ function cs3AppendAction(action) {
   if (action.command === 'CLICK_SAVE') {
     cs3AppendTranscript('Route committed — please review and approve.', 'system');
   } else {
+    if (_cs3AnimTriggered) return; // already animating via text-detection path — don't double-trigger
+    _cs3AnimTriggered = true;
     cs3AppendTranscript('Fixing the route, please wait…', 'system');
     cs3AnimateI10Route();
   }
@@ -2191,6 +2288,15 @@ const _I10_NODES = [
 
 function cs3AnimateI10Route() {
   _dbgLog('p3', 'Animating I-10 Southern Corridor route', 'info');
+
+  // Ask the agent to narrate the correction out loud
+  if (cs3Ws && cs3Ws.readyState === WebSocket.OPEN) {
+    cs3Ws.send(JSON.stringify({
+      type: 'override_alert',
+      text: 'ROUTE INVALID CONFIRMED. Say this exactly: "Route confirmed invalid — drawing the approved I-10 southern corridor through Los Angeles and Palm Springs now. RTT should return to 11.1 milliseconds." Then stop speaking.',
+    }));
+  }
+
   const mapDiv = document.getElementById('cs3-route-map');
   if (!mapDiv) return;
 
@@ -2222,6 +2328,13 @@ function cs3AnimateI10Route() {
       cs3UpdateRouteStatus('valid');
       cs3AppendTranscript('✓ I-10 Southern Corridor committed — RTT returning to 11.1 ms baseline.', 'system');
       cs3ShowApprovalBar(cs3PendingHandoff);
+      // Capture snapshot and reveal save button
+      cs3CaptureMapSnapshot().then(dataUrl => {
+        if (dataUrl) {
+          _cs3RouteSnapshot = dataUrl;
+          document.getElementById('cs3-save-btn')?.classList.remove('hidden');
+        }
+      });
     };
     mapDiv.appendChild(newImg);
   } else {
@@ -2299,7 +2412,12 @@ function _cs3DrawI10SVG(mapDiv) {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     svg.style.opacity = '1';
     setTimeout(() => {
-      cs3CaptureMapSnapshot().then(dataUrl => { if (dataUrl) _cs3RouteSnapshot = dataUrl; });
+      cs3CaptureMapSnapshot().then(dataUrl => {
+        if (dataUrl) {
+          _cs3RouteSnapshot = dataUrl;
+          document.getElementById('cs3-save-btn')?.classList.remove('hidden');
+        }
+      });
     }, 1300); // wait for 1.2s CSS transition to finish
   }));
 
@@ -2428,9 +2546,7 @@ function cs3ClearTranscript() {
 // ─── CS3 Status ───────────────────────────────────────────────────────────────
 let _cs3Status = { cls: '', label: 'Standby' };
 
-function cs3SetListening(on) {
-  document.getElementById('cs3-listening-indicator')?.classList.toggle('hidden', !on);
-}
+
 
 function cs3SetStatus(state) {
   const cls   = (state === 'connected' || state === 'executing') ? 'active' : '';
@@ -2463,14 +2579,15 @@ async function cs3StartSession() {
   cs3SetStatus('connected');
   cs3AppendTranscript('[Session starting…]', 'system');
 
+  _cs3ExecPollInterval = setInterval(cs3PollExecStatus, 2000);
+  cs3PollExecStatus();
+
   cs3Ws = new WebSocket(wsUrl);
-  cs3Ws.onopen = async () => {
+  cs3Ws.onopen = () => {
     _dbgLog('p3', `WS connected → ${wsUrl}`, 'system');
-    cs3AppendTranscript('[Connected to Situation Intelligence Brief]', 'system');
-    await cs3StartMic();
-    cs3SetListening(true);
-    // Check GE after agent has had a moment to initialise
-    setTimeout(_cs3NotifyGeVisibility, 2000);
+    cs3AppendTranscript('[Agent connected — requesting screen share…]', 'system');
+    // Auto-request screen share so user only needs ONE click total
+    setTimeout(cs3StartScreenShare, 300);
   };
   cs3Ws.onclose = () => {
     _dbgLog('p3', 'WS closed', 'system');
@@ -2480,7 +2597,6 @@ async function cs3StartSession() {
     const approvalVisible = !!document.getElementById('cs3-approval-bar');
     if (approvalVisible) {
       cs3AppendTranscript('[Connection closed — route correction saved. Click Approve or End Session.]', 'system');
-      cs3SetListening(false);
       cs3SetStatus('disconnected');
     } else {
       cs3AppendTranscript('[Session closed]', 'system');
@@ -2498,8 +2614,10 @@ async function cs3StartSession() {
     } else if (msg.type === 'text') {
       cs3AppendTranscript(msg.content, 'ai');
       _cs3ScanPending = false; // any agent response means scan was processed
-      cs3CheckReroutePhrase(msg.content);
-      cs3CheckValidVerdict(msg.content);
+      clearTimeout(_cs3ScanPendingTimer); _cs3ScanPendingTimer = null;
+      cs3TextAccum += msg.content; // accumulate chunks — verdict phrases may span multiple packets
+      cs3CheckReroutePhrase(cs3TextAccum);
+      cs3CheckValidVerdict(cs3TextAccum);
       // Voice commands acknowledged by agent → act on them
       if (/ending.{0,20}session|session.{0,10}end(ed|ing)?/i.test(msg.content)) {
         setTimeout(cs3StopSession, 800);
@@ -2511,6 +2629,7 @@ async function cs3StartSession() {
       cs3SetStatus('executing');
     } else if (msg.type === 'interrupted') {
       cs3ClearAudioQueue();
+      cs3TextAccum = ''; // reset accumulator on barge-in
       cs3AppendTranscript('[Interrupted — listening]', 'system');
     } else if (msg.type === 'error') {
       cs3AppendTranscript(`[ERROR: ${msg.message}]`, 'error');
@@ -2524,66 +2643,21 @@ function cs3StopSession() {
   _cs3RouteWasInvalid = false;
   _cs3RouteSnapshot = null;
   _cs3GeNotifiedOnce = false;
+  clearTimeout(_cs3ScanPendingTimer); _cs3ScanPendingTimer = null;
+  clearInterval(_cs3SilenceInterval); _cs3SilenceInterval = null;
+  clearInterval(_cs3ExecPollInterval); _cs3ExecPollInterval = null;
   document.getElementById('cs3-approval-bar')?.remove();
   cs3StopScreenShare();
-  if (cs3WorkletNode) { try { cs3WorkletNode.disconnect(); } catch (e) {} cs3WorkletNode = null; }
-  if (cs3CaptureCtx)  { cs3CaptureCtx.close().catch(() => {}); cs3CaptureCtx = null; }
-  if (cs3MicStream)   { cs3MicStream.getTracks().forEach(t => t.stop()); cs3MicStream = null; }
   if (cs3Ws && cs3Ws.readyState === WebSocket.OPEN) cs3Ws.close();
   cs3Ws = null;
   cs3ClearAudioQueue();
-  cs3SetListening(false);
   document.getElementById('cs3-speaking-indicator')?.classList.add('hidden');
-  document.getElementById('cs3-mic-badge')?.classList.replace('ll-badge-active-green', 'll-badge-inactive');
+  document.getElementById('cs3-save-btn')?.classList.add('hidden');
   cs3SetStatus('disconnected');
   document.getElementById('cs3-screen-btn').classList.add('hidden');
   const btn = document.getElementById('cs3-session-btn');
   btn.className = 'll-btn ll-btn-green';
   btn.innerHTML = '&#9654; Start Session';
-}
-
-// ─── CS3 Mic Capture ──────────────────────────────────────────────────────────
-async function cs3StartMic() {
-  try {
-    cs3MicStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 48000 },
-      video: false,
-    });
-    cs3CaptureCtx = new AudioContext();
-    const workletCode = `
-class PCMCapture extends AudioWorkletProcessor {
-  constructor() { super(); this._buf = []; }
-  process(inputs) {
-    const ch = inputs[0]?.[0];
-    if (!ch) return true;
-    for (let i = 0; i < ch.length; i += 3) {
-      const s = Math.max(-1, Math.min(1, ch[i]));
-      this._buf.push(s < 0 ? s * 0x8000 : s * 0x7FFF);
-    }
-    if (this._buf.length >= 1024) {
-      this.port.postMessage(new Int16Array(this._buf.splice(0, 1024)));
-    }
-    return true;
-  }
-}
-registerProcessor('pcm-capture', PCMCapture);`;
-    const blob = new Blob([workletCode], { type: 'application/javascript' });
-    const url  = URL.createObjectURL(blob);
-    await cs3CaptureCtx.audioWorklet.addModule(url);
-    URL.revokeObjectURL(url);
-    const src = cs3CaptureCtx.createMediaStreamSource(cs3MicStream);
-    cs3WorkletNode = new AudioWorkletNode(cs3CaptureCtx, 'pcm-capture');
-    cs3WorkletNode.port.onmessage = (e) => {
-      if (cs3Ws?.readyState === WebSocket.OPEN) {
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(e.data.buffer)));
-        cs3Ws.send(JSON.stringify({ type: 'audio', data: b64 }));
-      }
-    };
-    src.connect(cs3WorkletNode);
-    document.getElementById('cs3-mic-badge')?.classList.replace('ll-badge-inactive', 'll-badge-active-green');
-  } catch (e) {
-    cs3AppendTranscript(`[Mic error: ${e.message}]`, 'error');
-  }
 }
 
 // ─── CS3 Google Earth visibility check ────────────────────────────────────────
@@ -2616,6 +2690,12 @@ async function cs3StartScreenShare() {
     const agentView = document.getElementById('cs3-agent-view');
     if (agentView) agentView.style.display = 'block';
     cs3ScreenStream.getVideoTracks()[0].onended = () => cs3StopScreenShare();
+    document.getElementById('cs3-no-screen')?.style.setProperty('display', 'none');
+    // Auto-open Google Earth 1.5s after screen share starts — JavaScript does it,
+    // so the agent never needs to hunt for the button.
+    setTimeout(() => {
+      cs3OpenGE();
+    }, 1500);
     // Re-check GE visibility now that the agent can see frames
     _cs3PrevFrameHash = null;
     _cs3ChangeCooldown = false;
@@ -2629,16 +2709,28 @@ async function cs3StartScreenShare() {
       const el = document.getElementById('cs3-scan-timer');
       if (el) el.textContent = ` · scan ${_cs3ScanSecsLeft}s`;
     }, 1000);
-    // Every 5 seconds — skipped if agent is still processing the previous scan
+    // Every 1 second — skipped if agent is still processing the previous step
     cs3AnalyseInterval = setInterval(() => {
-      _cs3ScanSecsLeft = 5;
+      _cs3ScanSecsLeft = 1;
       if (cs3Ws?.readyState === WebSocket.OPEN && !_cs3ScanPending) {
         _cs3ScanPending = true;
-        cs3UpdateRouteStatus('scanning');
-        cs3AppendTranscript('[Scan]', 'system');
-        cs3Ws.send(JSON.stringify({ type: 'override_alert', text: 'SCAN.' }));
+        clearTimeout(_cs3ScanPendingTimer);
+        _cs3ScanPendingTimer = setTimeout(() => { _cs3ScanPending = false; }, 12000);
+        cs3TextAccum = '';
+        cs3Ws.send(JSON.stringify({ type: 'override_alert', text: 'ACT NOW. Look at the screen. Output one [ACTION:] tag immediately.' }));
       }
-    }, 5000);
+    }, 1000);
+    // First step trigger after 1.5s
+    setTimeout(() => {
+      if (cs3Ws?.readyState === WebSocket.OPEN && !_cs3ScanPending) {
+        _cs3ScanPending = true;
+        clearTimeout(_cs3ScanPendingTimer);
+        _cs3ScanPendingTimer = setTimeout(() => { _cs3ScanPending = false; }, 12000);
+        cs3TextAccum = '';
+        cs3AppendTranscript('[Starting…]', 'system');
+        cs3Ws.send(JSON.stringify({ type: 'override_alert', text: 'ACT NOW. Look at the screen. Output one [ACTION:] tag immediately.' }));
+      }
+    }, 1500);
   } catch (e) {
     cs3AppendTranscript(`[Screen error: ${e.message}]`, 'error');
   }
@@ -2649,13 +2741,17 @@ function cs3StopScreenShare() {
   _cs3PrevFrameHash = null;
   _cs3ChangeCooldown = false;
   _cs3ScanPending = false;
-  clearInterval(cs3FrameInterval);   cs3FrameInterval = null;
-  clearInterval(cs3AnalyseInterval); cs3AnalyseInterval = null;
-  clearInterval(cs3ScanCountdown);   cs3ScanCountdown = null;
+  clearTimeout(_cs3ScanPendingTimer); _cs3ScanPendingTimer = null;
+  clearInterval(cs3FrameInterval);    cs3FrameInterval = null;
+  clearInterval(cs3AnalyseInterval);  cs3AnalyseInterval = null;
+  clearInterval(cs3ScanCountdown);    cs3ScanCountdown = null;
+  clearInterval(_cs3SilenceInterval); _cs3SilenceInterval = null;
   const timerEl = document.getElementById('cs3-scan-timer');
   if (timerEl) timerEl.textContent = '';
   if (cs3ScreenStream) { cs3ScreenStream.getTracks().forEach(t => t.stop()); cs3ScreenStream = null; }
   cs3ScreenActive = false;
+  document.getElementById('cs3-no-screen')?.style.removeProperty('display');
+  const _av = document.getElementById('cs3-agent-view'); if (_av) _av.style.display = 'none';
   // Keep last captured frame visible — it shows what the agent just scanned
   document.getElementById('cs3-screen-badge')?.classList.replace('ll-badge-active-amber', 'll-badge-inactive');
   const btn = document.getElementById('cs3-screen-btn');
@@ -2695,6 +2791,7 @@ function cs3SendFrame() {
         _cs3ScanPending = true;
         setTimeout(() => { _cs3ChangeCooldown = false; }, 1500);
         _cs3ScanSecsLeft = 5;
+        cs3TextAccum = '';
         cs3UpdateRouteStatus('scanning');
         cs3AppendTranscript('[Screen changed — rescan]', 'system');
         cs3Ws.send(JSON.stringify({ type: 'override_alert', text: 'ROUTE CHANGED. SCAN NOW.' }));
@@ -2715,6 +2812,18 @@ function cs3FireOverride() {
   const text = "[OVERRIDE_ALERT] Human engineer is drawing a route through prohibitive mountainous terrain! Invoke the absolute co-pilot barge-in rule immediately.";
   cs3Ws.send(JSON.stringify({ type: 'override_alert', text }));
   cs3AppendTranscript('[Override alert sent]', 'system');
+}
+
+// ─── CS3 Screenshot Save ──────────────────────────────────────────────────────
+function cs3SaveScreenshot() {
+  const dataUrl = _cs3RouteSnapshot;
+  if (!dataUrl) return;
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = `i10-route-${new Date().toISOString().slice(0,19).replace(/[:T]/g, '-')}.jpg`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 // ─── CS3 Manual Rescan ────────────────────────────────────────────────────────
